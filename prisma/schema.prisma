@@ -1,0 +1,250 @@
+// Prisma schema for Isocode RFQ-to-Quote Costing Web Application
+// Client: Isocode RFQ Costing
+// Optimized for lightweight, zero-daemon SQLite storage on 8 GB RAM systems.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  role         String     @default("ESTIMATOR") // ESTIMATOR, SALES_HEAD, ADMIN
+  department   String?    @default("Cost Estimation")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  rfqsAssigned RFQ[]      @relation("AssignedEstimator")
+  quotesCreated Quote[]   @relation("QuoteCreator")
+  quotesApproved Quote[]  @relation("QuoteApprover")
+  auditLogs    AuditLog[]
+}
+
+model Customer {
+  id            String   @id @default(uuid())
+  name          String
+  code          String   @unique
+  segment       String   // e.g., "Two-Wheeler", "Tractor", "Tier-1 Drivetrain"
+  contactPerson String?
+  email         String
+  phone         String?
+  address       String?  // e.g., "Sample industrial location"
+  gstin         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  rfqs          RFQ[]
+}
+
+model MaterialRate {
+  id              String    @id @default(uuid())
+  materialCode    String    // e.g. "EN8", "40Cr4", "20MnCr5"
+  name            String
+  category        String    // e.g., "Carbon Steel", "Alloy Steel Forging", "Case Hardening Steel"
+  ratePerKg       Float     // In ₹ INR
+  scrapRatePerKg  Float     // In ₹ INR (scrap recovery rate)
+  density         Float     @default(7.85) // g/cm³
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  parts           Part[]
+}
+
+model MachineRate {
+  id            String    @id @default(uuid())
+  machineCode   String    // e.g., "CNC-LATHE-01", "VMC-4AX-01"
+  name          String
+  category      String    // e.g., "CNC Turning", "VMC Milling", "HMC Milling", "Forging Press"
+  hourRate      Float     // In ₹ INR/hr
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  operations    PartOperation[]
+}
+
+model LabourRate {
+  id            String    @id @default(uuid())
+  labourType    String    @unique // e.g., "Skilled Machinist", "Operator", "Quality Inspector"
+  hourRate      Float     // In ₹ INR/hr
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model RFQ {
+  id                 String     @id @default(uuid())
+  rfqNumber          String     @unique // e.g., "RFQ-DEMO-001"
+  customerId         String
+  customer           Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedEstimatorId String?
+  assignedEstimator  User?      @relation("AssignedEstimator", fields: [assignedEstimatorId], references: [id])
+  status             String     @default("ESTIMATING") // ESTIMATING, PENDING_APPROVAL, SENT, WON, LOST
+  lossReason         String?
+  targetDueDate      DateTime
+  receivedDate       DateTime   @default(now())
+  notes              String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  parts              Part[]
+  quotes             Quote[]
+  aiExtractions      AiExtraction[]
+}
+
+model Part {
+  id                     String           @id @default(uuid())
+  rfqId                  String
+  rfq                    RFQ              @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  partNumber             String           // e.g., "SPN-DEMO-01"
+  partName               String           // e.g., "Drive shaft sleeve"
+  materialId             String?
+  material               MaterialRate?    @relation(fields: [materialId], references: [id])
+  materialName           String           // Fallback/canonical name: "EN8"
+  grossWeightKg          Float            // Gross input weight
+  netWeightKg            Float            // Finished part weight
+  annualVolume           Int              // Target base annual volume
+  targetPrice            Float?           // Target customer price in ₹ (if available)
+  drawingNumber          String?
+  drawingRevision        String?          @default("Rev-A")
+  notes                  String?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  operations             PartOperation[]
+  quotes                 Quote[]
+}
+
+model PartOperation {
+  id            String       @id @default(uuid())
+  partId        String
+  part          Part         @relation(fields: [partId], references: [id], onDelete: Cascade)
+  sequence      Int          // 1, 2, 3...
+  operationName String       // "Facing & Centering", "Rough Turning", "Heat Treatment"
+  machineId     String?
+  machine       MachineRate? @relation(fields: [machineId], references: [id])
+  machineName   String       // Fallback/descriptive name
+  setupTimeMin  Float        @default(30.0) // Amortized over batch
+  cycleTimeMin  Float        // Machine cycle time per piece
+  labourType    String?      @default("Skilled Machinist")
+  labourRateHr  Float        @default(150.0)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model Quote {
+  id                String             @id @default(uuid())
+  quoteNumber       String             @unique // e.g., "QT-2026-001"
+  rfqId             String
+  rfq               RFQ                @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  partId            String
+  part              Part               @relation(fields: [partId], references: [id], onDelete: Cascade)
+  createdById       String
+  createdBy         User               @relation("QuoteCreator", fields: [createdById], references: [id])
+  version           Int                @default(1)
+  status            String             @default("DRAFT") // DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, SENT
+  overheadPct       Float              @default(12.0) // 12%
+  packingPerUnit    Float              @default(8.0)  // ₹8/unit
+  freightPerUnit    Float              @default(12.0) // ₹12/unit
+  marginPct         Float              @default(15.0) // 15% profit margin
+  gstPct            Float              @default(18.0) // 18% standard GST
+  requiresApproval  Boolean            @default(false) // Triggered if annual value > ₹25,00,000
+  totalAnnualValue  Float              @default(0.0)
+  approvedById      String?
+  approvedBy        User?              @relation("QuoteApprover", fields: [approvedById], references: [id])
+  approvedAt        DateTime?
+  rejectionReason   String?
+  approvalComments  String?
+  validityDays      Int                @default(30)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  volumeTiers       QuoteVolumeTier[]
+  snapshot          QuoteRateSnapshot?
+}
+
+model QuoteVolumeTier {
+  id                      String   @id @default(uuid())
+  quoteId                 String
+  quote                   Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  volume                  Int      // e.g., 16000, 42000, 120000
+  label                   String   // e.g., "Batch 24k", "Batch 60k", "Batch 180k"
+  materialCostPerUnit     Float    // Gross material cost
+  scrapCreditPerUnit      Float    // Value recovered from scrap
+  netMaterialCostPerUnit  Float    // Gross - Scrap credit
+  machiningCostPerUnit    Float    // Amortized setup + cycle time * machine hour rate
+  labourCostPerUnit       Float    // Labour charge
+  directCostPerUnit       Float    // Material + Machining + Labour
+  overheadCostPerUnit     Float    // Overhead % of direct cost
+  packingPerUnit          Float    // Packaging cost
+  freightPerUnit          Float    // Transport cost
+  baseCostPerUnit         Float    // Direct + Overhead + Packing + Freight
+  marginPerUnit           Float    // Profit margin in ₹
+  unitPriceExGst          Float    // Quoted unit price excluding tax
+  gstAmountPerUnit        Float    // 18% GST amount
+  unitPriceInclGst        Float    // Final unit price including GST
+  totalAnnualValue        Float    // unitPriceExGst * annualVolume
+  createdAt               DateTime @default(now())
+}
+
+model QuoteRateSnapshot {
+  id           String   @id @default(uuid())
+  quoteId      String   @unique
+  quote        Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  ratesData    String   // Serialized JSON of frozen rates (Material, Machines, Labour)
+  capturedAt   DateTime @default(now())
+}
+
+model AiExtraction {
+  id                 String   @id @default(uuid())
+  rfqId              String?
+  rfq                RFQ?     @relation(fields: [rfqId], references: [id], onDelete: SetNull)
+  sourceType         String   // "EMAIL", "EXCEL", "DRAWING_TITLE_BLOCK"
+  rawInputSnippet    String?
+  extractedData      String   // JSON string of fields: partName, material, grossWeightKg, annualVolume, etc.
+  provenanceMap      String   // JSON string with confidence & text snippets
+  reviewed           Boolean  @default(false)
+  createdAt          DateTime @default(now())
+}
+
+model HistoricalQuote {
+  id              String   @id @default(uuid())
+  rfqNumber       String
+  customerName    String
+  partName        String
+  material        String
+  grossWeightKg   Float
+  annualVolume    Int
+  cycleTimeMin    Float
+  machineHourRate Float
+  unitPriceInr    Float
+  quotedDate      DateTime
+  status          String   // "WON", "LOST", "EXPIRED"
+  routingsSummary String?
+  createdAt       DateTime @default(now())
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  entityType   String   // "RFQ", "QUOTE", "RATE_MASTER", "AUTH"
+  entityId     String
+  action       String   // "CREATE", "UPDATE", "SUBMIT_APPROVAL", "APPROVE", "REJECT", "SENT"
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  details      String?  // JSON or descriptive text
+  createdAt    DateTime @default(now())
+}
