@@ -1,12 +1,13 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db/prisma.js';
-import { AuthenticatedRequest, requireAuth, requireRole } from '../middleware/auth.js';
+import { AuthenticatedRequest, requireAuth, requirePermission } from '../middleware/auth.js';
+import { APPROVAL_THRESHOLD_INR, isEligibleForSalesHeadApproval } from '../services/rfqWorkflow.js';
 
 const router = Router();
 
 // Get all quotes pending approval
-router.get('/', requireAuth, async (_req, res) => {
+router.get('/', requireAuth, requirePermission('APPROVAL_VIEW'), async (_req, res) => {
   try {
     const pendingQuotes = await prisma.quote.findMany({
       where: {
@@ -23,6 +24,7 @@ router.get('/', requireAuth, async (_req, res) => {
         volumeTiers: {
           orderBy: { volume: 'asc' },
         },
+        snapshot: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -33,16 +35,20 @@ router.get('/', requireAuth, async (_req, res) => {
   }
 });
 
-// Approve Quote (Restricted to SALES_HEAD or ADMIN)
-router.post('/:quoteId/approve', requireAuth, requireRole(['SALES_HEAD', 'ADMIN']), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.post('/:quoteId/approve', requireAuth, requirePermission('APPROVAL_DECIDE'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { quoteId } = req.params;
-  const { comments } = req.body;
-  const userId = req.user?.id!;
+  const parsed = z.object({ comments: z.string().max(2000).optional() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid approval payload', details: parsed.error.format() });
+    return;
+  }
+  const { comments } = parsed.data;
+  const userId = req.user!.id;
 
   try {
     const existingQuote = await prisma.quote.findUnique({
       where: { id: quoteId },
-      include: { rfq: true },
+      include: { rfq: true, part: { select: { rfqId: true } } },
     });
 
     if (!existingQuote) {
@@ -50,39 +56,60 @@ router.post('/:quoteId/approve', requireAuth, requireRole(['SALES_HEAD', 'ADMIN'
       return;
     }
 
-    if (existingQuote.status !== 'PENDING_APPROVAL') {
+    if (
+      !isEligibleForSalesHeadApproval(existingQuote) ||
+      existingQuote.rfq.status !== 'PENDING_APPROVAL' ||
+      existingQuote.part.rfqId !== existingQuote.rfqId
+    ) {
       res.status(400).json({ error: `Quote is not in PENDING_APPROVAL status (Current: ${existingQuote.status})` });
       return;
     }
 
-    const updated = await prisma.quote.update({
-      where: { id: quoteId },
-      data: {
-        status: 'APPROVED',
-        approvedById: userId,
-        approvedAt: new Date(),
-        approvalComments: comments || 'Approved by Sales Head for formal customer quotation.',
-      },
-      include: {
-        approvedBy: { select: { id: true, name: true } },
-      },
-    });
+    const updated = await prisma.$transaction(async (tx) => {
+      const approvalTime = new Date();
+      const claimed = await tx.quote.updateMany({
+        where: {
+          id: quoteId,
+          status: 'PENDING_APPROVAL',
+          requiresApproval: true,
+          totalAnnualValue: { gt: APPROVAL_THRESHOLD_INR },
+        },
+        data: {
+          status: 'APPROVED',
+          approvedById: userId,
+          approvedAt: approvalTime,
+          approvalComments: comments || 'Approved by Sales Head for formal customer quotation.',
+        },
+      });
+      if (claimed.count !== 1) {
+        throw new Error('APPROVAL_STATE_CONFLICT');
+      }
 
-    // Update RFQ status to SENT or ESTIMATING
-    await prisma.rFQ.update({
-      where: { id: existingQuote.rfqId },
-      data: { status: 'SENT' },
-    });
+      const rfqClaim = await tx.rFQ.updateMany({
+        where: { id: existingQuote.rfqId, status: 'PENDING_APPROVAL' },
+        data: { status: 'SENT' },
+      });
+      if (rfqClaim.count !== 1) {
+        throw new Error('RFQ_STATE_CONFLICT');
+      }
+      await tx.auditLog.create({
+        data: {
+          entityType: 'QUOTE',
+          entityId: quoteId,
+          action: 'APPROVE',
+          userId,
+          details: JSON.stringify({
+            before: { quoteStatus: existingQuote.status, rfqStatus: existingQuote.rfq.status },
+            after: { quoteStatus: 'APPROVED', rfqStatus: 'SENT', approvedById: userId, approvedAt: approvalTime.toISOString() },
+            metadata: { totalAnnualValue: existingQuote.totalAnnualValue, comments: comments || null },
+          }),
+        },
+      });
 
-    // Create Audit Log
-    await prisma.auditLog.create({
-      data: {
-        entityType: 'QUOTE',
-        entityId: quoteId,
-        action: 'APPROVE',
-        userId,
-        details: `Quote ${existingQuote.quoteNumber} (Annual Value: ₹${existingQuote.totalAnnualValue}) approved by ${req.user?.name}. Comments: ${comments || 'None'}`,
-      },
+      return tx.quote.findUniqueOrThrow({
+        where: { id: quoteId },
+        include: { approvedBy: { select: { id: true, name: true } } },
+      });
     });
 
     res.json({
@@ -90,17 +117,24 @@ router.post('/:quoteId/approve', requireAuth, requireRole(['SALES_HEAD', 'ADMIN'
       quote: updated,
     });
   } catch (error) {
-    console.error('Approval error:', error);
+    if (error instanceof Error && error.message === 'APPROVAL_STATE_CONFLICT') {
+      res.status(409).json({ error: 'Quote was already reviewed or is no longer eligible for approval' });
+      return;
+    }
+    if (error instanceof Error && error.message === 'RFQ_STATE_CONFLICT') {
+      res.status(409).json({ error: 'RFQ was already reviewed or is no longer awaiting approval' });
+      return;
+    }
+    console.error('Approval action failed');
     res.status(500).json({ error: 'Failed to approve quote' });
   }
 });
 
-// Reject Quote (Restricted to SALES_HEAD or ADMIN)
-router.post('/:quoteId/reject', requireAuth, requireRole(['SALES_HEAD', 'ADMIN']), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.post('/:quoteId/reject', requireAuth, requirePermission('APPROVAL_DECIDE'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { quoteId } = req.params;
   const schema = z.object({
-    rejectionReason: z.string().min(3, 'Rejection reason is required'),
-    comments: z.string().optional(),
+    rejectionReason: z.string().trim().min(3, 'Rejection reason is required').max(2000),
+    comments: z.string().max(2000).optional(),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -110,11 +144,12 @@ router.post('/:quoteId/reject', requireAuth, requireRole(['SALES_HEAD', 'ADMIN']
   }
 
   const { rejectionReason, comments } = parsed.data;
-  const userId = req.user?.id!;
+  const userId = req.user!.id;
 
   try {
     const existingQuote = await prisma.quote.findUnique({
       where: { id: quoteId },
+      include: { rfq: true, part: { select: { rfqId: true } } },
     });
 
     if (!existingQuote) {
@@ -122,35 +157,61 @@ router.post('/:quoteId/reject', requireAuth, requireRole(['SALES_HEAD', 'ADMIN']
       return;
     }
 
-    const updated = await prisma.quote.update({
-      where: { id: quoteId },
-      data: {
-        status: 'REJECTED',
-        approvedById: userId,
-        approvedAt: new Date(),
-        rejectionReason,
-        approvalComments: comments,
-      },
-      include: {
-        approvedBy: { select: { id: true, name: true } },
-      },
-    });
+    if (
+      !isEligibleForSalesHeadApproval(existingQuote) ||
+      existingQuote.rfq.status !== 'PENDING_APPROVAL' ||
+      existingQuote.part.rfqId !== existingQuote.rfqId
+    ) {
+      res.status(400).json({ error: `Quote is not eligible for rejection (Current: ${existingQuote.status})` });
+      return;
+    }
 
-    // Revert RFQ status back to ESTIMATING for revision
-    await prisma.rFQ.update({
-      where: { id: existingQuote.rfqId },
-      data: { status: 'ESTIMATING' },
-    });
+    const updated = await prisma.$transaction(async (tx) => {
+      const reviewTime = new Date();
+      const claimed = await tx.quote.updateMany({
+        where: {
+          id: quoteId,
+          status: 'PENDING_APPROVAL',
+          requiresApproval: true,
+          totalAnnualValue: { gt: APPROVAL_THRESHOLD_INR },
+        },
+        data: {
+          status: 'REJECTED',
+          approvedById: userId,
+          approvedAt: reviewTime,
+          rejectionReason,
+          approvalComments: comments,
+        },
+      });
+      if (claimed.count !== 1) {
+        throw new Error('APPROVAL_STATE_CONFLICT');
+      }
 
-    // Create Audit Log
-    await prisma.auditLog.create({
-      data: {
-        entityType: 'QUOTE',
-        entityId: quoteId,
-        action: 'REJECT',
-        userId,
-        details: `Quote ${existingQuote.quoteNumber} rejected by ${req.user?.name}. Reason: ${rejectionReason}`,
-      },
+      const rfqClaim = await tx.rFQ.updateMany({
+        where: { id: existingQuote.rfqId, status: 'PENDING_APPROVAL' },
+        data: { status: 'ESTIMATING' },
+      });
+      if (rfqClaim.count !== 1) {
+        throw new Error('RFQ_STATE_CONFLICT');
+      }
+      await tx.auditLog.create({
+        data: {
+          entityType: 'QUOTE',
+          entityId: quoteId,
+          action: 'REJECT',
+          userId,
+          details: JSON.stringify({
+            before: { quoteStatus: existingQuote.status, rfqStatus: existingQuote.rfq.status },
+            after: { quoteStatus: 'REJECTED', rfqStatus: 'ESTIMATING', reviewedById: userId, reviewedAt: reviewTime.toISOString() },
+            metadata: { totalAnnualValue: existingQuote.totalAnnualValue, rejectionReason, comments: comments || null },
+          }),
+        },
+      });
+
+      return tx.quote.findUniqueOrThrow({
+        where: { id: quoteId },
+        include: { approvedBy: { select: { id: true, name: true } } },
+      });
     });
 
     res.json({
@@ -158,13 +219,21 @@ router.post('/:quoteId/reject', requireAuth, requireRole(['SALES_HEAD', 'ADMIN']
       quote: updated,
     });
   } catch (error) {
-    console.error('Rejection error:', error);
+    if (error instanceof Error && error.message === 'APPROVAL_STATE_CONFLICT') {
+      res.status(409).json({ error: 'Quote was already reviewed or is no longer eligible for rejection' });
+      return;
+    }
+    if (error instanceof Error && error.message === 'RFQ_STATE_CONFLICT') {
+      res.status(409).json({ error: 'RFQ was already reviewed or is no longer awaiting approval' });
+      return;
+    }
+    console.error('Rejection action failed');
     res.status(500).json({ error: 'Failed to reject quote' });
   }
 });
 
 // Audit history of approvals
-router.get('/history', requireAuth, async (_req, res) => {
+router.get('/history', requireAuth, requirePermission('AUDIT_READ'), async (_req, res) => {
   try {
     const logs = await prisma.auditLog.findMany({
       where: {

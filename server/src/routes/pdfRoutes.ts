@@ -1,11 +1,11 @@
 import { Router, Response } from 'express';
 import { prisma } from '../db/prisma.js';
-import { AuthenticatedRequest, requireAuth } from '../middleware/auth.js';
+import { AuthenticatedRequest, requireAuth, requirePermission } from '../middleware/auth.js';
 import { generateQuotationPdf } from '../services/pdfService.js';
 
 const router = Router();
 
-router.get('/quote/:quoteId', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.get('/quote/:quoteId', requireAuth, requirePermission('PDF_GENERATE'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { quoteId } = req.params;
 
   try {
@@ -26,6 +26,14 @@ router.get('/quote/:quoteId', requireAuth, async (req: AuthenticatedRequest, res
 
     if (!quote) {
       res.status(404).json({ error: 'Quote not found' });
+      return;
+    }
+    if (req.user?.role === 'ESTIMATOR' && quote.createdById !== req.user.id) {
+      res.status(403).json({ error: 'Forbidden: Quote is not owned by this estimator' });
+      return;
+    }
+    if (quote.status === 'DRAFT' || quote.status === 'REJECTED') {
+      res.status(409).json({ error: `Quotation in ${quote.status} status is not available as a customer PDF` });
       return;
     }
 

@@ -1,7 +1,8 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db/prisma.js';
-import { AuthenticatedRequest, requireAuth } from '../middleware/auth.js';
+import { AuthenticatedRequest, requireAuth, requirePermission } from '../middleware/auth.js';
+import { getRfqWorkflowStatus } from '../services/rfqWorkflow.js';
 
 const router = Router();
 
@@ -10,7 +11,6 @@ const createRfqSchema = z.object({
   customerId: z.string().min(1),
   targetDueDate: z.string(),
   notes: z.string().optional(),
-  assignedEstimatorId: z.string().optional(),
   parts: z.array(
     z.object({
       partNumber: z.string().min(1),
@@ -29,17 +29,15 @@ const createRfqSchema = z.object({
 });
 
 // List all RFQs with search & status filters
-router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.get('/', requireAuth, requirePermission('RFQ_READ'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { status, search, assignedTo } = req.query;
 
   try {
-    const where: any = {};
+    const where: Record<string, unknown> = {};
 
-    if (status && typeof status === 'string' && status !== 'ALL') {
-      where.status = status;
-    }
-
-    if (assignedTo && typeof assignedTo === 'string') {
+    if (req.user?.role === 'ESTIMATOR') {
+      where.assignedEstimatorId = req.user.id;
+    } else if (assignedTo && typeof assignedTo === 'string') {
       where.assignedEstimatorId = assignedTo;
     }
 
@@ -68,7 +66,9 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response): P
                 status: true,
                 totalAnnualValue: true,
                 requiresApproval: true,
+                createdAt: true,
               },
+              orderBy: { createdAt: 'desc' },
             },
           },
         },
@@ -79,7 +79,18 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response): P
       orderBy: { targetDueDate: 'asc' },
     });
 
-    res.json(rfqs);
+    const workflowRfqs = rfqs.map((rfq) => ({
+      ...rfq,
+      status: getRfqWorkflowStatus(
+        rfq.status,
+        rfq.parts.flatMap((part) => part.quotes),
+      ),
+    }));
+    res.json(
+      status && typeof status === 'string' && status !== 'ALL'
+        ? workflowRfqs.filter((rfq) => rfq.status === status)
+        : workflowRfqs,
+    );
   } catch (error) {
     console.error('Error fetching RFQs:', error);
     res.status(500).json({ error: 'Failed to fetch RFQs' });
@@ -87,7 +98,7 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response): P
 });
 
 // Get single RFQ with all relations
-router.get('/:id', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.get('/:id', requireAuth, requirePermission('RFQ_READ'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { id } = req.params;
 
   try {
@@ -127,7 +138,15 @@ router.get('/:id', requireAuth, async (req: AuthenticatedRequest, res: Response)
       return;
     }
 
-    res.json(rfq);
+    if (req.user?.role === 'ESTIMATOR' && rfq.assignedEstimatorId !== req.user.id) {
+      res.status(403).json({ error: 'Forbidden: RFQ is not assigned to this estimator' });
+      return;
+    }
+
+    res.json({
+      ...rfq,
+      status: getRfqWorkflowStatus(rfq.status, rfq.parts.flatMap((part) => part.quotes)),
+    });
   } catch (error) {
     console.error('Error fetching RFQ detail:', error);
     res.status(500).json({ error: 'Failed to fetch RFQ details' });
@@ -135,7 +154,7 @@ router.get('/:id', requireAuth, async (req: AuthenticatedRequest, res: Response)
 });
 
 // Create RFQ
-router.post('/', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.post('/', requireAuth, requirePermission('RFQ_CREATE'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const parseResult = createRfqSchema.safeParse(req.body);
   if (!parseResult.success) {
     res.status(400).json({ error: 'Validation failed', details: parseResult.error.format() });
@@ -145,33 +164,44 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res: Response): 
   const data = parseResult.data;
 
   try {
-    const rfq = await prisma.rFQ.create({
-      data: {
-        rfqNumber: data.rfqNumber,
-        customerId: data.customerId,
-        assignedEstimatorId: data.assignedEstimatorId || req.user?.id,
-        targetDueDate: new Date(data.targetDueDate),
-        notes: data.notes,
-        parts: {
-          create: data.parts.map((p) => ({
-            partNumber: p.partNumber,
-            partName: p.partName,
-            materialId: p.materialId,
-            materialName: p.materialName,
-            grossWeightKg: p.grossWeightKg,
-            netWeightKg: p.netWeightKg,
-            annualVolume: p.annualVolume,
-            targetPrice: p.targetPrice,
-            drawingNumber: p.drawingNumber,
-            drawingRevision: p.drawingRevision || 'Rev-A',
-            notes: p.notes,
-          })),
+    const rfq = await prisma.$transaction(async (tx) => {
+      const created = await tx.rFQ.create({
+        data: {
+          rfqNumber: data.rfqNumber,
+          customerId: data.customerId,
+          assignedEstimatorId: req.user!.id,
+          targetDueDate: new Date(data.targetDueDate),
+          notes: data.notes,
+          parts: {
+            create: data.parts.map((p) => ({
+              partNumber: p.partNumber,
+              partName: p.partName,
+              materialId: p.materialId,
+              materialName: p.materialName,
+              grossWeightKg: p.grossWeightKg,
+              netWeightKg: p.netWeightKg,
+              annualVolume: p.annualVolume,
+              targetPrice: p.targetPrice,
+              drawingNumber: p.drawingNumber,
+              drawingRevision: p.drawingRevision || 'Rev-A',
+              notes: p.notes,
+            })),
+          },
         },
-      },
-      include: {
-        customer: true,
-        parts: true,
-      },
+        include: { customer: true, parts: true },
+      });
+      await tx.auditLog.create({
+        data: {
+          entityType: 'RFQ',
+          entityId: created.id,
+          action: 'CREATE',
+          userId: req.user!.id,
+          details: JSON.stringify({
+            after: { rfqNumber: created.rfqNumber, status: created.status, assignedEstimatorId: req.user!.id },
+          }),
+        },
+      });
+      return created;
     });
 
     res.status(201).json(rfq);
@@ -185,22 +215,198 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res: Response): 
   }
 });
 
-// Update RFQ Status (Won, Lost, Sent, Estimating)
-router.patch('/:id/status', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  const { id } = req.params;
-  const { status, lossReason } = req.body;
+router.patch('/:id', requireAuth, requirePermission('RFQ_EDIT'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  const parsed = z.object({
+    customerId: z.string().min(1),
+    targetDueDate: z.string().min(1),
+    notes: z.string().max(5000).optional(),
+    part: z.object({
+      partNumber: z.string().trim().min(1).max(120),
+      partName: z.string().trim().min(1).max(240),
+      materialName: z.string().trim().min(1).max(120),
+      grossWeightKg: z.number().positive(),
+      netWeightKg: z.number().positive(),
+      annualVolume: z.number().int().positive(),
+      notes: z.string().max(5000).optional(),
+    }).strict(),
+  }).strict().safeParse(req.body);
+
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid RFQ edit payload', details: parsed.error.format() });
+    return;
+  }
+  if (parsed.data.part.netWeightKg > parsed.data.part.grossWeightKg) {
+    res.status(400).json({ error: 'Net weight cannot exceed gross weight' });
+    return;
+  }
 
   try {
-    const rfq = await prisma.rFQ.update({
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.rFQ.findUnique({
+        where: { id: req.params.id },
+        include: {
+          customer: { select: { id: true } },
+          parts: { select: { id: true, partNumber: true, partName: true, materialName: true, grossWeightKg: true, netWeightKg: true, annualVolume: true }, take: 1 },
+          quotes: { select: { id: true }, take: 1 },
+        },
+      });
+      if (!existing) return { error: 'NOT_FOUND' as const };
+      if (existing.assignedEstimatorId !== req.user!.id) return { error: 'FORBIDDEN' as const };
+      if (existing.status !== 'ESTIMATING' || existing.quotes.length > 0) return { error: 'NOT_EDITABLE' as const };
+      if (!existing.parts[0]) return { error: 'NO_PART' as const };
+
+      const targetDate = new Date(parsed.data.targetDueDate);
+      if (Number.isNaN(targetDate.getTime())) return { error: 'INVALID_DATE' as const };
+      const part = parsed.data.part;
+      const result = await tx.rFQ.update({
+        where: { id: existing.id },
+        data: {
+          customerId: parsed.data.customerId,
+          targetDueDate: targetDate,
+          notes: parsed.data.notes,
+          parts: {
+            update: {
+              where: { id: existing.parts[0].id },
+              data: {
+                partNumber: part.partNumber,
+                partName: part.partName,
+                materialName: part.materialName,
+                grossWeightKg: part.grossWeightKg,
+                netWeightKg: part.netWeightKg,
+                annualVolume: part.annualVolume,
+                notes: part.notes,
+              },
+            },
+          },
+        },
+        include: { customer: true, parts: true },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          entityType: 'RFQ',
+          entityId: existing.id,
+          action: 'UPDATE_DETAILS',
+          userId: req.user!.id,
+          details: JSON.stringify({
+            before: {
+              customerId: existing.customerId,
+              targetDueDate: existing.targetDueDate.toISOString(),
+              part: existing.parts[0],
+            },
+            after: {
+              customerId: result.customerId,
+              targetDueDate: result.targetDueDate.toISOString(),
+              part: {
+                partNumber: part.partNumber,
+                partName: part.partName,
+                materialName: part.materialName,
+                grossWeightKg: part.grossWeightKg,
+                netWeightKg: part.netWeightKg,
+                annualVolume: part.annualVolume,
+              },
+            },
+          }),
+        },
+      });
+      return { result };
+    });
+
+    if ('error' in updated) {
+      if (updated.error === 'NOT_FOUND') res.status(404).json({ error: 'RFQ not found' });
+      else if (updated.error === 'FORBIDDEN') res.status(403).json({ error: 'Forbidden: RFQ is not assigned to this estimator' });
+      else if (updated.error === 'NO_PART') res.status(409).json({ error: 'RFQ has no editable primary part' });
+      else if (updated.error === 'INVALID_DATE') res.status(400).json({ error: 'Target due date is invalid' });
+      else res.status(409).json({ error: 'Only estimating RFQs without submitted quotes can be edited' });
+      return;
+    }
+
+    res.json(updated.result);
+  } catch (error) {
+    console.error('Error editing RFQ:', error);
+    res.status(500).json({ error: 'Failed to edit RFQ' });
+  }
+});
+
+// Update RFQ Status (Won, Lost, Sent, Estimating)
+router.patch('/:id/status', requireAuth, requirePermission('RFQ_STATUS_UPDATE'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  const { id } = req.params;
+  const parsed = z.object({
+    status: z.enum(['WON', 'LOST']),
+    lossReason: z.string().trim().min(3).optional(),
+  }).safeParse(req.body);
+
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid RFQ status update', details: parsed.error.format() });
+    return;
+  }
+  const { status, lossReason } = parsed.data;
+  if (status === 'LOST' && !lossReason) {
+    res.status(400).json({ error: 'A loss reason is required when marking an RFQ as lost' });
+    return;
+  }
+
+  try {
+    const existing = await prisma.rFQ.findUnique({
       where: { id },
-      data: {
-        status,
-        lossReason: status === 'LOST' ? lossReason : null,
+      include: {
+        quotes: {
+          select: {
+            status: true,
+            requiresApproval: true,
+            totalAnnualValue: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
+    if (!existing) {
+      res.status(404).json({ error: 'RFQ not found' });
+      return;
+    }
+    if (existing.assignedEstimatorId !== req.user!.id) {
+      res.status(403).json({ error: 'Forbidden: RFQ is not assigned to this estimator' });
+      return;
+    }
+    const workflowStatus = getRfqWorkflowStatus(existing.status, existing.quotes);
+    if (workflowStatus !== 'SENT') {
+      res.status(409).json({ error: 'Only RFQs sent to the customer can be marked won or lost' });
+      return;
+    }
+
+    const rfq = await prisma.$transaction(async (tx) => {
+      const update = await tx.rFQ.updateMany({
+        where: { id, assignedEstimatorId: req.user!.id, status: existing.status },
+        data: {
+          status,
+          lossReason: status === 'LOST' ? lossReason : null,
+        },
+      });
+      if (update.count !== 1) return null;
+      const updated = await tx.rFQ.findUniqueOrThrow({ where: { id } });
+      await tx.auditLog.create({
+        data: {
+          entityType: 'RFQ',
+          entityId: id,
+          action: 'UPDATE_STATUS',
+          userId: req.user!.id,
+          details: JSON.stringify({
+            before: { status: workflowStatus, lossReason: existing.lossReason },
+            after: { status: updated.status, lossReason: updated.lossReason },
+          }),
+        },
+      });
+      return updated;
+    });
+    if (!rfq) {
+      res.status(409).json({ error: 'RFQ status changed; reload and try again' });
+      return;
+    }
 
     res.json(rfq);
   } catch (error) {
+    console.error('Error updating RFQ status:', error);
     res.status(500).json({ error: 'Failed to update RFQ status' });
   }
 });

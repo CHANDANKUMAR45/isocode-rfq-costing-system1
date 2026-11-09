@@ -9,6 +9,8 @@ import approvalRoutes from './routes/approvalRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import historicalRoutes from './routes/historicalRoutes.js';
 import pdfRoutes from './routes/pdfRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
+import dashboardRoutes from './routes/dashboardRoutes.js';
 
 dotenv.config();
 
@@ -16,7 +18,27 @@ export const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors());
+const allowedOrigins = [
+  'http://localhost:5173',
+  ...(process.env.CLIENT_ORIGIN || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Origin not allowed by CORS'));
+      }
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 app.use(express.json({ limit: '10mb' }));
 
 // Health Check
@@ -24,7 +46,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     service: 'Isocode RFQ-to-Quote Costing App',
-    client: 'Isocode RFQ Costing',
+    client: 'Isocode RFQ-to-Quote Costing App',
     timestamp: new Date().toISOString(),
   });
 });
@@ -38,6 +60,8 @@ app.use('/api/approvals', approvalRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/historical', historicalRoutes);
 app.use('/api/pdf', pdfRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Global Error Handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -51,6 +75,6 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 // Start server only when run directly (not during vitest testing)
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
-    console.log(`🚀 Isocode RFQ Costing Server running on http://localhost:${PORT}`);
+    console.log(`RFQ Costing API running on http://localhost:${PORT}`);
   });
 }

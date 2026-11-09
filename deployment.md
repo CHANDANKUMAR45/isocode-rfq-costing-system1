@@ -1,124 +1,141 @@
-# Deployment & Operations Guide
+# Local Setup Guide
 
-**Application**: Isocode RFQ-to-Quote Costing Web Application  
-**Client**: Isocode (Tier-1 Auto-Component Manufacturer, sample location)  
+This guide covers running the application on a development computer. The project is not deployed to a live hosting service.
 
----
+## Required software
 
-## 1. Local Environment Setup & Execution
+- Windows, macOS, or Linux
+- Node.js 18 or later
+- npm
 
-### System Requirements
-- **Operating System**: Windows 10/11, macOS, or Linux
-- **RAM**: 8 GB RAM (optimized lightweight footprint; consumes &lt; 200 MB RAM total)
-- **Node.js**: v18.0.0 or higher (Tested on Node v25.2.1)
-- **npm**: v9.0.0 or higher
+The application supports PostgreSQL databases, including Supabase-hosted PostgreSQL. SQLite is available for local development and tests.
 
-### Environment Variables
-Configure the following environment variables in `server/.env`:
+## Install dependencies
 
-| Variable Name | Default Value | Description |
-| :--- | :--- | :--- |
-| `PORT` | `5000` | Port on which the Express server listens |
-| `NODE_ENV` | `development` | Runtime environment (`development`, `production`, `test`) |
-| `DATABASE_URL` | `"file:../prisma/dev.db"` | SQLite database connection string |
-| `JWT_SECRET` | `"company-a-sample location-rfq-jwt-secret-key-2026"` | Cryptographic key used to sign and verify session JWTs |
-| `GEMINI_API_KEY` | *(Optional)* | Google AI Studio free-tier Gemini API key for real AI RFQ intake |
+Open a terminal in the project root and install the locked server and client dependencies:
 
-> **Note**: If `GEMINI_API_KEY` is not provided, the system automatically runs the built-in deterministic heuristic parser without errors. Customer NDA privacy is guaranteed in both modes.
-
-### Local Installation Commands (Step-by-Step)
-
-1. **Install Server Dependencies**:
-   ```bash
-   npm --prefix server install
-   ```
-
-2. **Install Client Dependencies**:
-   ```bash
-   npm --prefix client install
-   ```
-
-3. **Initialize the SQLite Database**:
-   ```bash
-   npm --prefix server run prisma:push
-   ```
-
-4. **Seed Demo Data & 1,400 Historical Quotes**:
-   ```bash
-   npm --prefix server run seed
-   ```
-
-5. **Start the Application**:
-   - Backend API:
-     ```bash
-     npm --prefix server run dev
-     ```
-   - Frontend Client:
-     ```bash
-     npm --prefix client run dev
-     ```
-
-6. **Access Application**:
-   - Frontend: `http://localhost:5173`
-   - Backend API: `http://localhost:5000/api/health`
-
----
-
-## 2. Demo User Credentials
-
-The application includes an instant **one-click Role Switcher** in the top navigation bar. You may also log in manually:
-
-| Role | Email | Password | Intended Workflow |
-| :--- | :--- | :--- | :--- |
-| **Estimator** | `estimator@example.invalid` | `[REDACTED_DEMO_PASSWORD]` | Create RFQs, run costing calculations, submit quotes for approval |
-| **Sales Head** | `saleshead@example.invalid` | `[REDACTED_DEMO_PASSWORD]` | Review & approve/reject quotes over ₹25 Lakhs, version rate masters |
-| **Admin** | `admin@example.invalid` | `[REDACTED_DEMO_PASSWORD]` | Full system audit and rate configuration |
-
----
-
-## 3. Production Deployment Guide (Free-Tier Compatible)
-
-To deploy the application to free cloud hosting (e.g., Render, Railway, or Fly.io):
-
-### Architecture in Production
-- **Frontend**: Static site build deployed to Vercel / Netlify / Render Static (`npm --prefix client run build`, output: `client/dist`).
-- **Backend**: Container or Node.js web service running on Render / Railway free tier.
-- **Database**:
-  - For single-instance deployment: Persistent SQLite disk (`DATABASE_URL="file:/data/app.db"`).
-  - For distributed multi-instance deployment: Point Prisma to Supabase or Neon free-tier PostgreSQL by setting `provider = "postgresql"` in `prisma/schema.prisma`.
-
-### Build Commands for Production
-```bash
-# Build frontend
-cd client && npm install && npm run build
-
-# Build backend
-cd ../server && npm install && npm run build
-
-# Start backend in production
-npm start
+```powershell
+npm --prefix server ci
+npm --prefix client ci
 ```
 
----
+## Configure the server
 
-## 4. Verification & Testing
+Copy the example environment file:
 
-To execute the automated test suite:
-```bash
+```powershell
+Copy-Item .env.example server\.env
+```
+
+Edit `server\.env` before starting the server.
+
+| Variable | Required | Purpose |
+|---|---:|---|
+| `PORT` | No | API port; defaults to `5000` in the application. |
+| `NODE_ENV` | No | Runtime mode. Use `development` for local work. |
+| `DATABASE_URL` | Yes | Prisma URL. A PostgreSQL URL selects the PostgreSQL client; a `file:` URL selects the SQLite client. The checked-in example uses SQLite. |
+| `JWT_SECRET` | Yes | Private signing secret. Set a unique random value of at least 32 bytes. There is no default secret. |
+| `GEMINI_API_KEY` | No | Optional key for Google Gemini text extraction. Leave blank to use local heuristics. |
+| `GEMINI_MODEL` | No | Gemini model used by the direct connection check. Defaults to `gemini-3.6-flash` if unset. |
+| `DEMO_USER_PASSWORD` | Required for seeding and API tests | Private password of at least 12 characters used for local sample accounts. Do not use it for production accounts. |
+
+To print a random secret in PowerShell using the installed Node.js runtime:
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+Copy the generated value into `server\.env`. Do not add a real secret or API key to Git. Only send RFQ text to Gemini when its use is allowed by your data-handling requirements; the scrubber cannot remove all possible identifying details.
+
+## Set up a new local database
+
+The repository does not include the local SQLite database. For a fresh local SQLite setup, set `DATABASE_URL` to a `file:` URL in `server\.env`, then run:
+
+```powershell
+npm --prefix server run prisma:generate
+npm --prefix server run prisma:push
+npm --prefix server run seed
+```
+
+These commands create/update the SQLite schema and add sample demo data. They are not needed if your database is already initialized. Never run these SQLite `prisma:push` or `seed` commands while `DATABASE_URL` points to PostgreSQL. Do not run them against a database containing data you need without first making a backup.
+
+Existing SQLite databases created before labour rate versioning need the row-preserving migration before multiple versions of one labour category can be saved. Back up the database, confirm `DATABASE_URL` is a `file:` URL, then run:
+
+```powershell
+npm --prefix server run prisma:labour-migration
+```
+
+The command runs the checked-in SQLite migration in a transaction. The PostgreSQL schema and migration history are separate under `prisma/postgresql/`; the PostgreSQL initial migration already includes the labour-rate index. Never use the SQLite migration command for PostgreSQL.
+
+Generate both Prisma clients after a fresh install or schema change, with the API stopped:
+
+```powershell
+npm --prefix server run prisma:generate:all
+```
+
+## Start the application
+
+Open one terminal for the API:
+
+```powershell
+npm --prefix server run dev
+```
+
+Open a second terminal for the client:
+
+```powershell
+npm --prefix client run dev
+```
+
+Open `http://localhost:5173`. Check the API at `http://localhost:5000/api/health`.
+
+## Demo login
+
+After setting `DEMO_USER_PASSWORD` in `server\.env` and running the seed command on a disposable local database, sign in with one of these sample accounts. Enter the password you set locally.
+
+| Role | Email |
+|---|---|
+| Estimator | `estimator@example.invalid` |
+| Sales Head | `saleshead@example.invalid` |
+| Admin | `admin@example.invalid` |
+
+These users and passwords are for a local demonstration database only. Do not use the seed accounts in a deployed environment.
+
+## Build and test
+
+Run the production builds and server tests from the project root:
+
+```powershell
+npm --prefix client run build
+npm --prefix server run build
 npm --prefix server test
 ```
 
-### Test Coverage Checklist:
-- [x] Material gross weight, scrap factor & credit calculation
-- [x] Machine cycle time & hourly rate calculations
-- [x] Setup time amortization across multiple production volumes
-- [x] Overheads, packing, freight & margin percentages
-- [x] 18% GST separation
-- [x] Automated ₹25 Lakhs annual value approval trigger
-- [x] Effective-dated rate masters with start/end windows
-- [x] Immutable rate snapshot generation
-- [x] Role-based access control (RBAC) enforcement
-- [x] Customer NDA data scrubber
-- [x] Real/Heuristic AI RFQ extraction
-- [x] Search across 1,400 historical quotes
-- [x] Binary PDF quotation document generation
+There is no dedicated client test script configured at present. The API tests use the configured database and can create and remove records. Run them only against a disposable, seeded test database; do not point them at a database containing data you need.
+
+To prepare a fresh, uniquely named SQLite database for the API tests, run these commands from the project root in PowerShell. The generated filename is ignored by Git; do not substitute a database file containing data you need.
+
+```powershell
+$env:DATABASE_URL = "file:../prisma/test-$([guid]::NewGuid().ToString('N')).db"
+$env:DEMO_USER_PASSWORD = Read-Host "Enter a unique sample-user password (12 or more characters)"
+npm --prefix server run prisma:generate
+npm --prefix server run prisma:push
+npm --prefix server run seed
+npm --prefix server test
+```
+
+Keep the same shell and environment variables for the commands in this block so the seed and tests use the disposable database. Do not use the test database URL for normal app data.
+
+## Check the Gemini API connection
+
+Set `GEMINI_API_KEY` in `server\.env`. Optionally set `GEMINI_MODEL` to a model available to your API key. From the project root, run:
+
+```powershell
+npm --prefix server run test:gemini
+```
+
+This command sends only the fixed prompt `Reply with exactly: GEMINI_CONNECTION_SUCCESS` directly to the configured Gemini model using `generateContent`. It does not call RFQ extraction or its local heuristic fallback, and it does not print the API key. A successful response must match the requested text exactly. Failures report a category such as authentication/permission, rate limit, model not found, invalid request, server error, or network/timeout. The Gemini service may incur API usage under your Google account.
+
+## Deployment status
+
+No hosted deployment is configured or verified. Before a production deployment, configure HTTPS, a restricted CORS origin, secure secret storage, a production database and backups, and a reviewed AI data-processing policy. The current local setup is not a production deployment recipe.

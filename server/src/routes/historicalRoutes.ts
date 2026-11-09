@@ -1,12 +1,12 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db/prisma.js';
-import { AuthenticatedRequest, requireAuth } from '../middleware/auth.js';
+import { AuthenticatedRequest, requireAuth, requirePermission } from '../middleware/auth.js';
 
 const router = Router();
 
 // Search past quotes across 1,400+ historical records
-router.get('/search', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.get('/search', requireAuth, requirePermission('HISTORICAL_READ'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { query, material, customer, page = '1', limit = '20' } = req.query;
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -58,7 +58,7 @@ router.get('/search', requireAuth, async (req: AuthenticatedRequest, res: Respon
 });
 
 // Routing suggestions based on similar historical parts
-router.get('/suggest-routings', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.get('/suggest-routings', requireAuth, requirePermission('HISTORICAL_READ'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { partName, material } = req.query;
 
   if (!partName || typeof partName !== 'string') {
@@ -86,7 +86,7 @@ router.get('/suggest-routings', requireAuth, async (req: AuthenticatedRequest, r
 });
 
 // Bulk import historical quotes (simulating Excel / CSV import)
-router.post('/import', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.post('/import', requireAuth, requirePermission('HISTORICAL_IMPORT'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const rowSchema = z.object({
     rfqNumber: z.string().min(1),
     customerName: z.string().min(1),
@@ -118,13 +118,26 @@ router.post('/import', requireAuth, async (req: AuthenticatedRequest, res: Respo
       quotedDate: r.quotedDate ? new Date(r.quotedDate) : new Date(),
     }));
 
-    await prisma.historicalQuote.createMany({ data });
+    const created = await prisma.$transaction(async (tx) => {
+      const result = await tx.historicalQuote.createMany({ data });
+      await tx.auditLog.create({
+        data: {
+          entityType: 'HISTORICAL_QUOTES',
+          entityId: 'bulk-import',
+          action: 'IMPORT',
+          userId: req.user!.id,
+          details: JSON.stringify({ after: { importedCount: result.count } }),
+        },
+      });
+      return result;
+    });
 
     res.status(201).json({
       message: `Successfully imported ${data.length} historical quotes.`,
-      count: data.length,
+      count: created.count,
     });
   } catch (error) {
+    console.error('Historical import error:', error);
     res.status(500).json({ error: 'Failed to import historical rows' });
   }
 });

@@ -8,7 +8,6 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
-  switchUser: (role: 'ESTIMATOR' | 'SALES_HEAD' | 'ADMIN') => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,29 +18,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadUser() {
-      if (token) {
-        try {
-          const profile = await api.getMe();
-          setUser(profile);
-        } catch (err) {
-          console.warn('Session expired, logging out');
-          logout();
-        }
-      } else {
-        // Automatically login default Estimator if not logged in for seamless demo review
-        try {
-          const res = await api.login('estimator@example.invalid', '[REDACTED_DEMO_PASSWORD]');
-          localStorage.setItem('isocode_token', res.token);
-          setToken(res.token);
-          setUser(res.user);
-        } catch {
-          // ignore
-        }
+      if (!token) {
+        setUser(null);
+        setLoading(false);
+        return;
       }
-      setLoading(false);
+
+      setLoading(true);
+      try {
+        const profile = await api.getMe();
+        if (!cancelled) setUser(profile);
+      } catch {
+        if (!cancelled) {
+          localStorage.removeItem('isocode_token');
+          setToken(null);
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
+
     loadUser();
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
   const login = async (email: string, password: string) => {
@@ -57,18 +61,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const switchUser = async (role: 'ESTIMATOR' | 'SALES_HEAD' | 'ADMIN') => {
-    const email =
-      role === 'ESTIMATOR'
-        ? 'estimator@example.invalid'
-        : role === 'SALES_HEAD'
-        ? 'saleshead@example.invalid'
-        : 'admin@example.invalid';
-    await login(email, '[REDACTED_DEMO_PASSWORD]');
-  };
-
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, switchUser }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

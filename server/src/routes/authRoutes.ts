@@ -3,18 +3,16 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { prisma } from '../db/prisma.js';
-import { AuthenticatedRequest, requireAuth } from '../middleware/auth.js';
+import { AuthenticatedRequest, JWT_SECRET, requireAuth, requirePermission } from '../middleware/auth.js';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'company-a-sample location-rfq-jwt-secret-key-2026';
 
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
 
-// Demo accounts for instant one-click login in review/evaluation
-router.get('/demo-users', async (_req, res) => {
+router.get('/demo-users', requireAuth, requirePermission('USER_MANAGE'), async (_req, res) => {
   try {
     const users = await prisma.user.findMany({
       select: {

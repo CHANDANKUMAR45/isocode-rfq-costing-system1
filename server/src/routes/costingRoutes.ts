@@ -1,9 +1,8 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db/prisma.js';
-import { AuthenticatedRequest, requireAuth } from '../middleware/auth.js';
+import { AuthenticatedRequest, requireAuth, requirePermission } from '../middleware/auth.js';
 import { calculatePartCost, CostingCalculationInput } from '../services/costingEngine.js';
-import { createRateSnapshot } from '../services/rateSnapshotService.js';
 
 const router = Router();
 
@@ -39,7 +38,7 @@ const calculateSchema = z.object({
 });
 
 // Live calculation preview (no database commit)
-router.post('/calculate', requireAuth, (req: AuthenticatedRequest, res: Response): void => {
+router.post('/calculate', requireAuth, requirePermission('COSTING'), (req: AuthenticatedRequest, res: Response): void => {
   const parsed = calculateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.format() });
@@ -51,13 +50,13 @@ router.post('/calculate', requireAuth, (req: AuthenticatedRequest, res: Response
 });
 
 // Save Quote with Volume Tiers & Immutable Rate Snapshot
-router.post('/save-quote', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.post('/save-quote', requireAuth, requirePermission('QUOTE_CREATE'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const saveSchema = z.object({
     rfqId: z.string().min(1),
     partId: z.string().min(1),
     costingInput: calculateSchema,
     quoteNumber: z.string().optional(),
-    validityDays: z.number().int().default(30),
+    validityDays: z.number().int().min(1).max(365).default(30),
   });
 
   const parsed = saveSchema.safeParse(req.body);
@@ -67,9 +66,30 @@ router.post('/save-quote', requireAuth, async (req: AuthenticatedRequest, res: R
   }
 
   const { rfqId, partId, costingInput, validityDays } = parsed.data;
-  const userId = req.user?.id!;
+  const userId = req.user!.id;
 
   try {
+    const [rfq, part] = await Promise.all([
+      prisma.rFQ.findUnique({ where: { id: rfqId }, select: { id: true, assignedEstimatorId: true, status: true } }),
+      prisma.part.findUnique({ where: { id: partId }, select: { id: true, rfqId: true } }),
+    ]);
+    if (!rfq || !part) {
+      res.status(404).json({ error: 'RFQ or part not found' });
+      return;
+    }
+    if (rfq.assignedEstimatorId !== userId) {
+      res.status(403).json({ error: 'Forbidden: RFQ is not assigned to this estimator' });
+      return;
+    }
+    if (part.rfqId !== rfqId) {
+      res.status(400).json({ error: 'Part does not belong to the requested RFQ' });
+      return;
+    }
+    if (rfq.status !== 'ESTIMATING' && rfq.status !== 'SENT') {
+      res.status(409).json({ error: `RFQ cannot accept a quote while its status is ${rfq.status}` });
+      return;
+    }
+
     // 1. Calculate deterministic values
     const calculation = calculatePartCost(costingInput as CostingCalculationInput);
 
@@ -77,88 +97,108 @@ router.post('/save-quote', requireAuth, async (req: AuthenticatedRequest, res: R
     const quoteNumber = parsed.data.quoteNumber || `QT-${Date.now().toString().slice(-6)}`;
 
     // 3. Status determination: Quotes exceeding ₹25 Lakh annual value require approval
-    const status = calculation.requiresSalesHeadApproval ? 'PENDING_APPROVAL' : 'APPROVED';
+    const status = calculation.requiresSalesHeadApproval ? 'PENDING_APPROVAL' : 'SENT';
 
     // 4. Save Quote record
-    const quote = await prisma.quote.create({
-      data: {
-        quoteNumber,
-        rfqId,
-        partId,
-        createdById: userId,
-        version: 1,
-        status,
-        overheadPct: costingInput.overheadPct,
-        packingPerUnit: costingInput.packingPerUnit,
-        freightPerUnit: costingInput.freightPerUnit,
-        marginPct: costingInput.marginPct,
-        gstPct: costingInput.gstPct,
-        requiresApproval: calculation.requiresSalesHeadApproval,
-        totalAnnualValue: calculation.maxAnnualValue,
-        validityDays,
-        volumeTiers: {
-          create: calculation.tiers.map((tier) => ({
-            volume: tier.volume,
-            label: tier.label,
-            materialCostPerUnit: tier.grossMaterialCost,
-            scrapCreditPerUnit: tier.scrapCredit,
-            netMaterialCostPerUnit: tier.netMaterialCost,
-            machiningCostPerUnit: tier.machiningCost,
-            labourCostPerUnit: tier.labourCost,
-            directCostPerUnit: tier.directCost,
-            overheadCostPerUnit: tier.overheadCost,
-            packingPerUnit: tier.packingCost,
-            freightPerUnit: tier.freightCost,
-            baseCostPerUnit: tier.baseCost,
-            marginPerUnit: tier.marginAmount,
-            unitPriceExGst: tier.unitPriceExGst,
-            gstAmountPerUnit: tier.gstAmount,
-            unitPriceInclGst: tier.unitPriceInclGst,
-            totalAnnualValue: tier.totalAnnualValue,
-          })),
+    const quote = await prisma.$transaction(async (tx) => {
+      const createdQuote = await tx.quote.create({
+        data: {
+          quoteNumber,
+          rfqId,
+          partId,
+          createdById: userId,
+          version: 1,
+          status,
+          overheadPct: costingInput.overheadPct,
+          packingPerUnit: costingInput.packingPerUnit,
+          freightPerUnit: costingInput.freightPerUnit,
+          marginPct: costingInput.marginPct,
+          gstPct: costingInput.gstPct,
+          requiresApproval: calculation.requiresSalesHeadApproval,
+          totalAnnualValue: calculation.maxAnnualValue,
+          validityDays,
+          volumeTiers: {
+            create: calculation.tiers.map((tier) => ({
+              volume: tier.volume,
+              label: tier.label,
+              materialCostPerUnit: tier.grossMaterialCost,
+              scrapCreditPerUnit: tier.scrapCredit,
+              netMaterialCostPerUnit: tier.netMaterialCost,
+              machiningCostPerUnit: tier.machiningCost,
+              labourCostPerUnit: tier.labourCost,
+              directCostPerUnit: tier.directCost,
+              overheadCostPerUnit: tier.overheadCost,
+              packingPerUnit: tier.packingCost,
+              freightPerUnit: tier.freightCost,
+              baseCostPerUnit: tier.baseCost,
+              marginPerUnit: tier.marginAmount,
+              unitPriceExGst: tier.unitPriceExGst,
+              gstAmountPerUnit: tier.gstAmount,
+              unitPriceInclGst: tier.unitPriceInclGst,
+              totalAnnualValue: tier.totalAnnualValue,
+            })),
+          },
         },
-      },
-    });
-
-    // 5. Freeze immutable Rate Snapshot
-    await createRateSnapshot(quote.id, {
-      material: {
-        materialCode: 'ACTIVE_MAT',
-        name: 'Quoted Material',
-        ratePerKg: costingInput.materialRatePerKg,
-        scrapRatePerKg: costingInput.scrapRecoveryRatePerKg,
-        effectiveFrom: new Date().toISOString(),
-      },
-      machines: costingInput.operations.map((op) => ({
-        machineCode: op.machineId || 'MACH',
-        name: op.machineName,
-        hourRate: op.machineHourRate,
-        effectiveFrom: new Date().toISOString(),
-      })),
-      labour: costingInput.operations.map((op) => ({
-        labourType: 'Machinist',
-        hourRate: op.labourRateHr,
-      })),
-      capturedAt: new Date().toISOString(),
-    });
-
-    // 6. Update RFQ status if approval needed
-    if (calculation.requiresSalesHeadApproval) {
-      await prisma.rFQ.update({
-        where: { id: rfqId },
-        data: { status: 'PENDING_APPROVAL' },
       });
-    }
 
-    // 7. Audit log
-    await prisma.auditLog.create({
-      data: {
-        entityType: 'QUOTE',
-        entityId: quote.id,
-        action: 'CREATE',
-        userId,
-        details: `Quote ${quote.quoteNumber} created. Annual Value: ₹${calculation.maxAnnualValue}. Requires Approval: ${calculation.requiresSalesHeadApproval}`,
-      },
+      const capturedAt = new Date();
+      const ratesData = JSON.stringify({
+        material: {
+          materialCode: 'ACTIVE_MAT',
+          name: 'Quoted Material',
+          ratePerKg: costingInput.materialRatePerKg,
+          scrapRatePerKg: costingInput.scrapRecoveryRatePerKg,
+          effectiveFrom: capturedAt.toISOString(),
+        },
+        machines: costingInput.operations.map((op) => ({
+          machineCode: op.machineId || 'MACH',
+          name: op.machineName,
+          hourRate: op.machineHourRate,
+          effectiveFrom: capturedAt.toISOString(),
+        })),
+        labour: costingInput.operations.map((op) => ({
+          labourType: 'Machinist',
+          hourRate: op.labourRateHr,
+        })),
+        capturedAt: capturedAt.toISOString(),
+      });
+      await tx.quoteRateSnapshot.create({
+        data: { quoteId: createdQuote.id, ratesData, capturedAt },
+      });
+
+      const nextRfqStatus = calculation.requiresSalesHeadApproval ? 'PENDING_APPROVAL' : 'SENT';
+      const submission = await tx.rFQ.updateMany({
+        where: {
+          id: rfqId,
+          assignedEstimatorId: userId,
+          status: rfq.status,
+        },
+        data: { status: nextRfqStatus },
+      });
+      if (submission.count !== 1) {
+        throw new Error('RFQ_SUBMISSION_CONFLICT');
+      }
+
+      await tx.auditLog.create({
+        data: {
+          entityType: 'QUOTE',
+          entityId: createdQuote.id,
+          action: calculation.requiresSalesHeadApproval ? 'SUBMIT_APPROVAL' : 'CREATE',
+          userId,
+          details: JSON.stringify({
+            before: { rfqStatus: rfq.status },
+            after: {
+              quoteNumber: createdQuote.quoteNumber,
+              quoteStatus: createdQuote.status,
+              rfqStatus: nextRfqStatus,
+              totalAnnualValue: createdQuote.totalAnnualValue,
+              requiresApproval: createdQuote.requiresApproval,
+            },
+          }),
+        },
+      });
+
+      return createdQuote;
     });
 
     res.status(201).json({
@@ -166,16 +206,20 @@ router.post('/save-quote', requireAuth, async (req: AuthenticatedRequest, res: R
       calculation,
       message: calculation.requiresSalesHeadApproval
         ? 'Quote created and submitted for Sales Head Approval (Exceeds ₹25 Lakhs threshold).'
-        : 'Quote created successfully.',
+        : 'Quote released without Sales Head review (within approval limit).',
     });
   } catch (error) {
-    console.error('Error saving quote:', error);
+    if (error instanceof Error && error.message === 'RFQ_SUBMISSION_CONFLICT') {
+      res.status(409).json({ error: 'RFQ status changed while the quote was being submitted' });
+      return;
+    }
+    console.error('Quote submission failed');
     res.status(500).json({ error: 'Failed to save quote' });
   }
 });
 
 // Get quote details with snapshot and volume tiers
-router.get('/:quoteId', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.get('/:quoteId', requireAuth, requirePermission('QUOTE_READ'), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { quoteId } = req.params;
 
   try {
@@ -199,6 +243,11 @@ router.get('/:quoteId', requireAuth, async (req: AuthenticatedRequest, res: Resp
 
     if (!quote) {
       res.status(404).json({ error: 'Quote not found' });
+      return;
+    }
+
+    if (req.user?.role === 'ESTIMATOR' && quote.createdById !== req.user.id) {
+      res.status(403).json({ error: 'Forbidden: Quote is not owned by this estimator' });
       return;
     }
 

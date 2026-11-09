@@ -81,6 +81,16 @@ export interface RFQ {
   };
 }
 
+export interface DashboardSummary {
+  activeRfqs: number;
+  estimatingRfqs: number;
+  quotesPendingApproval: number;
+  approvedQuotes: number;
+  quotesSentToCustomer: number;
+  wonOrders: number;
+  lostOrders: number;
+}
+
 export interface VolumeTierBreakdown {
   id?: string;
   volume: number;

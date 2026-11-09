@@ -8,6 +8,8 @@ export interface ExtractedFieldProvenance {
 }
 
 export interface ExtractedRfqData {
+  provider: 'gemini' | 'local_fallback';
+  geminiErrorCategory?: string;
   partName: ExtractedFieldProvenance;
   partNumber: ExtractedFieldProvenance;
   material: ExtractedFieldProvenance;
@@ -64,48 +66,74 @@ export function scrubCustomerNdaData(rawInput: string): { scrubbedText: string; 
  * RFQ emails, Excel tables, and drawing title blocks are accurately parsed.
  */
 export function extractWithHeuristics(rawInput: string, sourceType: 'EMAIL' | 'EXCEL' | 'DRAWING_TITLE_BLOCK'): ExtractedRfqData {
-  const findMatch = (regex: RegExp): { val: string | null; snippet: string } => {
+  const findMatch = (regex: RegExp): { val: string; snippet: string } | null => {
     const match = regex.exec(rawInput);
     if (match && match[1]) {
       return { val: match[1].trim(), snippet: match[0].trim() };
+    }
+    return null;
+  };
+  const findFirstMatch = (...patterns: RegExp[]): { val: string | null; snippet: string } => {
+    for (const pattern of patterns) {
+      const match = findMatch(pattern);
+      if (match) return match;
     }
     return { val: null, snippet: '' };
   };
 
   // Part Name
-  const partNameMatch = findMatch(/(?:part(?:\s+name)?|description|component)\s*[:=\t-]\s*([A-Za-z0-9\s-]+?)(?:\r?\n|$|,)/i)
-    || findMatch(/(Drive shaft sleeve|Linkage bracket|Transmission Transmission gear blank|Shaft pinion|Shaft coupling|Linkage rod)/i);
+  const partNameMatch = findFirstMatch(
+    /(?:^|[\r\n])\s*(?:part\s+(?:name|description)|description|component(?:\s+name)?)\s*[:=\t-]\s*([^,\r\n|]+)/i,
+    /(Rear wheel spindle|Hydraulic lift arm|Gear blank|Shaft pinion|Flange yoke|Connecting rod)/i,
+  );
+  if (partNameMatch.val) {
+    partNameMatch.val = partNameMatch.val
+      .replace(/^(?:part\s+name|component(?:\s+name)?)\s*[:=\t-]\s*/i, '')
+      .trim();
+  }
   
   // Part Number
-  const partNoMatch = findMatch(/(?:part\s*(?:no|number|#)|drawing\s*no)\s*[:=\t-]\s*([A-Za-z0-9\/-]+)/i);
+  const partNoMatch = findFirstMatch(/(?:part\s*(?:no|number|#)|drawing\s*no)\s*[:=\t-]\s*([A-Za-z0-9\/-]+)/i);
 
   // Material
-  const materialMatch = findMatch(/(?:material|matl|grade|specification)\s*[:=\t-]\s*([A-Za-z0-9\s]+?)(?:\r?\n|$|,)/i)
-    || findMatch(/(EN8|40Cr4|20MnCr5|EN19|EN24|SS304|Al6061|Cast Iron FG260|40Cr4 forging)/i);
+  const materialMatch = findFirstMatch(
+    /(?:^|[\r\n])\s*(?:material|matl|grade|specification|material\s+spec)\s*[:=\t-]\s*([^,\r\n|]+)/i,
+    /(EN8|40Cr4|20MnCr5|EN19|EN24|SS304|Al6061|Cast Iron FG260|40Cr4 forging)/i,
+  );
 
   // Gross Weight
-  const grossWtMatch = findMatch(/(?:gross\s*wt|gross\s*weight|input\s*wt|raw\s*weight)\s*[:=\t-]?\s*([\d.]+)\s*(?:kg|kgs|g)?/i)
-    || findMatch(/([\d.]+)\s*(?:kg|kgs)\s*(?:gross)/i);
+  const grossWtMatch = findFirstMatch(
+    /(?:gross\s*wt|gross\s*weight|input\s*wt|raw\s*weight)\s*[:=\t-]?\s*([\d.]+)\s*(?:kg|kgs|g)?/i,
+    /([\d.]+)\s*(?:kg|kgs)\s*(?:gross)/i,
+  );
 
   // Net Weight
-  const netWtMatch = findMatch(/(?:net\s*wt|net\s*weight|finished\s*weight)\s*[:=\t-]?\s*([\d.]+)\s*(?:kg|kgs)?/i);
+  const netWtMatch = findFirstMatch(/(?:net\s*wt|net\s*weight|finished\s*weight)\s*[:=\t-]?\s*([\d.]+)\s*(?:kg|kgs)?/i);
 
   // Annual Volume
-  const volumeMatch = findMatch(/(?:annual\s*volume|volume|ann\s*qty|quantity|lot\s*size|eav)\s*[:=\t-]?\s*([\d,]+)/i);
+  const volumeMatch = findFirstMatch(
+    /(?:target\s+|projected\s+)?annual\s+(?:requirement|volume|qty|quantity|batch|demand)\s*[:=\t-]?\s*([\d,]+(?:\.\d+)?\s*(?:k|thousand)?)/i,
+    /(?:requirement\s+per\s+annum|yearly\s+(?:volume|requirement)|ann\s*qty|eav|quantity|lot\s*size|volume)\s*[:=\t-]?\s*([\d,]+(?:\.\d+)?\s*(?:k|thousand)?)/i,
+  );
 
   // Cycle Time
-  const cycleTimeMatch = findMatch(/(?:cycle\s*time|machining\s*time|c\/t)\s*[:=\t-]?\s*([\d.]+)\s*(?:min|mins|sec)?/i);
+  const cycleTimeMatch = findFirstMatch(/(?:cycle\s*time|machining\s*time|c\/t)\s*[:=\t-]?\s*([\d.]+)\s*(?:min|mins|sec)?/i);
 
   // Drawing Number
-  const drawingMatch = findMatch(/(?:drawing\s*(?:no|#)|drg\s*no)\s*[:=\t-]\s*([A-Za-z0-9\/-]+)/i);
+  const drawingMatch = findFirstMatch(/(?:drawing\s*(?:no|#)|drg\s*no)\s*[:=\t-]\s*([A-Za-z0-9\/-]+)/i);
 
   // Revision
-  const revMatch = findMatch(/(?:rev|revision)\s*[:=\t-]\s*([A-Za-z0-9]+)/i);
+  const revMatch = findFirstMatch(/(?:rev|revision)\s*[:=\t-]\s*([A-Za-z0-9]+)/i);
 
   const cleanNum = (str: string | null): number | null => {
     if (!str) return null;
-    const n = parseFloat(str.replace(/,/g, ''));
+    const n = parseFloat(str.replace(/,/g, '').replace(/\s*(?:k|thousand)$/i, ''));
     return isNaN(n) ? null : n;
+  };
+  const cleanAnnualVolume = (str: string | null): number | null => {
+    const value = cleanNum(str);
+    if (value === null) return null;
+    return /(?:k|thousand)\s*$/i.test(str!) ? value * 1000 : value;
   };
 
   // Provide realistic automotive routing suggestions based on extracted material and part type
@@ -126,12 +154,13 @@ export function extractWithHeuristics(rawInput: string, sourceType: 'EMAIL' | 'E
   } else {
     // Default turning / machining sequence
     suggestedOperations.push(
-      { sequence: 1, operationName: 'CNC Blank Turning & Boring', machineType: 'CNC Lathe 2-Axis', estimatedCycleTimeMin: cycleTimeMatch.val ? cleanNum(cycleTimeMatch.val)! : 3.5, sourcePartReference: 'Standard sample location Turning Baseline' },
-      { sequence: 2, operationName: 'VMC Keyway Milling & Drilling', machineType: 'VMC 4-Axis', estimatedCycleTimeMin: 1.5, sourcePartReference: 'Standard sample location Milling Baseline' }
+      { sequence: 1, operationName: 'CNC Blank Turning & Boring', machineType: 'CNC Lathe 2-Axis', estimatedCycleTimeMin: cycleTimeMatch.val ? cleanNum(cycleTimeMatch.val)! : 3.5, sourcePartReference: 'Standard turning baseline' },
+      { sequence: 2, operationName: 'VMC Keyway Milling & Drilling', machineType: 'VMC 4-Axis', estimatedCycleTimeMin: 1.5, sourcePartReference: 'Standard milling baseline' }
     );
   }
 
   return {
+    provider: 'local_fallback',
     partName: {
       value: partNameMatch.val,
       snippet: partNameMatch.snippet,
@@ -163,7 +192,7 @@ export function extractWithHeuristics(rawInput: string, sourceType: 'EMAIL' | 'E
       source: sourceType,
     },
     annualVolume: {
-      value: cleanNum(volumeMatch.val),
+      value: cleanAnnualVolume(volumeMatch.val),
       snippet: volumeMatch.snippet,
       confidence: volumeMatch.val ? 0.95 : 0.0,
       source: sourceType,
@@ -204,6 +233,7 @@ export async function extractRfqWithAi(
   sourceType: 'EMAIL' | 'EXCEL' | 'DRAWING_TITLE_BLOCK'
 ): Promise<ExtractedRfqData> {
   const apiKey = process.env.GEMINI_API_KEY;
+  const modelName = process.env.GEMINI_MODEL?.trim() || 'gemini-3.6-flash';
 
   // Step 1: Client NDA Privacy Pre-scrub
   const { scrubbedText } = scrubCustomerNdaData(rawInput);
@@ -211,6 +241,7 @@ export async function extractRfqWithAi(
   // If no API key is provided, use deterministic heuristic extraction
   if (!apiKey || apiKey.trim() === '') {
     const result = extractWithHeuristics(scrubbedText, sourceType);
+    result.provider = 'local_fallback';
     result.scrubbedNotice = 'Processed securely using local deterministic parser (No external AI API key configured). Customer NDA intact.';
     return result;
   }
@@ -218,14 +249,14 @@ export async function extractRfqWithAi(
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: modelName,
       generationConfig: {
         responseMimeType: 'application/json',
       },
     });
 
     const promptText = `
-You are an expert manufacturing cost estimation AI for Isocode, an auto-component manufacturer in sample location.
+You are an assistant that extracts structured manufacturing quotation details from supplied text.
 Extract the technical parameters from this customer RFQ input (${sourceType}):
 
 Input Text:
@@ -261,6 +292,7 @@ Rules:
     const parsed = JSON.parse(textOutput);
 
     return {
+      provider: 'gemini',
       partName: { ...parsed.partName, source: sourceType },
       partNumber: { ...parsed.partNumber, source: sourceType },
       material: { ...parsed.material, source: sourceType },
@@ -272,12 +304,52 @@ Rules:
       revision: { ...parsed.revision, source: sourceType },
       suggestedOperations: parsed.suggestedOperations || [],
       isAiGenerated: true,
-      scrubbedNotice: 'Extracted using Gemini Flash with client NDA privacy scrubbing.',
+      scrubbedNotice: `Extracted using ${modelName} with client NDA privacy scrubbing.`,
     };
   } catch (error) {
-    console.warn('Gemini API call failed or rate-limited; gracefully falling back to heuristic parser:', error);
+    const status = getGeminiHttpStatus(error);
+    const category = getGeminiErrorCategory(error, status);
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Gemini extraction failed; using local parser', {
+        category,
+        ...(status === undefined ? {} : { httpStatus: status }),
+      });
+    }
     const result = extractWithHeuristics(scrubbedText, sourceType);
-    result.scrubbedNotice = 'Gemini API unavailable; seamlessly processed using local heuristic engine.';
+    result.provider = 'local_fallback';
+    result.geminiErrorCategory = category;
+    result.scrubbedNotice = `Gemini extraction failed (${category}); processed using the local parser.`;
     return result;
   }
+}
+
+function getGeminiHttpStatus(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null && 'status' in error) {
+    const status = error.status;
+    if (typeof status === 'number') return status;
+  }
+
+  if (error instanceof Error) {
+    const match = error.message.match(/\[(\d{3})(?:\s+[^\]]*)?\]/);
+    if (match) return Number(match[1]);
+  }
+
+  return undefined;
+}
+
+function getGeminiErrorCategory(error: unknown, status?: number): string {
+  if (status === 401 || status === 403) return 'AUTHENTICATION_OR_PERMISSION';
+  if (status === 429) return 'RATE_LIMIT';
+  if (status === 404) return 'MODEL_NOT_FOUND';
+  if (status !== undefined && status >= 400 && status < 500) return 'INVALID_REQUEST';
+  if (status !== undefined && status >= 500) return 'PROVIDER_SERVER_ERROR';
+  if (
+    error instanceof Error &&
+    (error.name === 'AbortError' ||
+      error.name === 'TimeoutError' ||
+      error instanceof TypeError)
+  ) {
+    return 'NETWORK_OR_TIMEOUT';
+  }
+  return 'API_OR_RESPONSE_ERROR';
 }

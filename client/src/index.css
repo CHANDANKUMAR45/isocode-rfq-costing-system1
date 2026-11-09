@@ -3,15 +3,37 @@
 @tailwind utilities;
 
 @layer base {
-  body {
+  html, body {
     @apply bg-slate-100 text-slate-800 antialiased font-sans selection:bg-sky-200 selection:text-sky-900;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-width: 320px;
   }
 
   /* Monospace for engineering figures and rates */
   .font-mono {
     font-family: 'JetBrains Mono', monospace;
   }
+}
+
+@media (max-width: 639px) {
+  button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  input,
+  select {
+    min-height: 44px;
+  }
+}
+
+/* Touch scrolling utilities */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Custom scrollbars for dense data tables */

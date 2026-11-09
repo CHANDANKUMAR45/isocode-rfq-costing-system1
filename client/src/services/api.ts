@@ -1,6 +1,9 @@
-import { RFQ, Part, MaterialRate, MachineRate, LabourRate, CalculationResult, HistoricalQuoteRecord, User } from '../types';
+import { RFQ, Part, MaterialRate, MachineRate, LabourRate, CalculationResult, HistoricalQuoteRecord, User, DashboardSummary } from '../types';
 
-const API_BASE = '/api';
+const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || '')
+  .replace(/\/+$/, '');
+
+const API_BASE = `${API_ORIGIN}/api`;
 
 function getHeaders(): HeadersInit {
   const token = localStorage.getItem('isocode_token');
@@ -45,6 +48,34 @@ export const api = {
     return handleResponse<User>(res);
   },
 
+  async getAdminUsers() {
+    const res = await fetch(`${API_BASE}/admin/users`, { headers: getHeaders() });
+    return handleResponse<User[]>(res);
+  },
+
+  async createAdminUser(payload: { email: string; name: string; password: string; role: User['role']; department?: string }) {
+    const res = await fetch(`${API_BASE}/admin/users`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<User>(res);
+  },
+
+  async updateAdminUserRole(userId: string, role: User['role']) {
+    const res = await fetch(`${API_BASE}/admin/users/${userId}/role`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ role }),
+    });
+    return handleResponse<User>(res);
+  },
+
+  async getAdminAuditLogs() {
+    const res = await fetch(`${API_BASE}/admin/audit-logs?limit=100`, { headers: getHeaders() });
+    return handleResponse<any[]>(res);
+  },
+
   // RFQs
   async getRfqs(filters?: { status?: string; search?: string; assignedTo?: string }) {
     const params = new URLSearchParams();
@@ -56,6 +87,11 @@ export const api = {
     return handleResponse<RFQ[]>(res);
   },
 
+  async getDashboardSummary() {
+    const res = await fetch(`${API_BASE}/dashboard/summary`, { headers: getHeaders() });
+    return handleResponse<DashboardSummary>(res);
+  },
+
   async getRfq(id: string) {
     const res = await fetch(`${API_BASE}/rfqs/${id}`, { headers: getHeaders() });
     return handleResponse<RFQ>(res);
@@ -64,6 +100,28 @@ export const api = {
   async createRfq(payload: any) {
     const res = await fetch(`${API_BASE}/rfqs`, {
       method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<RFQ>(res);
+  },
+
+  async updateRfq(id: string, payload: {
+    customerId: string;
+    targetDueDate: string;
+    notes?: string;
+    part: {
+      partNumber: string;
+      partName: string;
+      materialName: string;
+      grossWeightKg: number;
+      netWeightKg: number;
+      annualVolume: number;
+      notes?: string;
+    };
+  }) {
+    const res = await fetch(`${API_BASE}/rfqs/${id}`, {
+      method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify(payload),
     });
@@ -116,6 +174,15 @@ export const api = {
       body: JSON.stringify(payload),
     });
     return handleResponse<MachineRate>(res);
+  },
+
+  async createLabourRate(payload: any) {
+    const res = await fetch(`${API_BASE}/rates/labour`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<LabourRate>(res);
   },
 
   // Costing
@@ -201,6 +268,21 @@ export const api = {
   },
 
   // PDF
+  async getQuotePdf(quoteId: string): Promise<Blob> {
+    const res = await fetch(`${API_BASE}/pdf/quote/${quoteId}`, { headers: getHeaders() });
+    if (!res.ok) {
+      let errorMsg = res.statusText || 'Failed to generate quotation PDF';
+      try {
+        const error = await res.json();
+        errorMsg = error.error || error.message || errorMsg;
+      } catch {
+        // Keep the HTTP status message when the server does not return JSON.
+      }
+      throw new Error(errorMsg);
+    }
+    return res.blob();
+  },
+
   getPdfUrl(quoteId: string) {
     return `${API_BASE}/pdf/quote/${quoteId}`;
   },

@@ -30,14 +30,14 @@ describe('Part Costing Mathematical Engine', () => {
     volumeTiers: [
       { volume: 50000, label: 'Batch 50k' },
       { volume: 100000, label: 'Batch 100k' },
-      { volume: 120000, label: 'Batch 180k (Target)' },
+      { volume: 180000, label: 'Batch 180k (Target)' },
     ],
     overheadPct: 12.0,
     packingPerUnit: 5.0,
     freightPerUnit: 8.0,
     marginPct: 15.0,
     gstPct: 18.0,
-    annualVolume: 120000,
+    annualVolume: 180000,
   };
 
   it('calculates gross material, scrap recovery, and net material accurately', () => {
@@ -89,7 +89,7 @@ describe('Part Costing Mathematical Engine', () => {
 
   it('triggers Sales Head Approval when annual contract value exceeds ₹25 Lakhs', () => {
     const result = calculatePartCost(sampleRearWheelSpindleInput);
-    // At 120,000 pcs and ~₹145/unit, annual value is ~₹2.6 Crore, which is > ₹25 Lakhs
+    // At 180,000 pcs and ~₹145/unit, annual value is ~₹2.6 Crore, which is > ₹25 Lakhs
     expect(result.requiresSalesHeadApproval).toBe(true);
     expect(result.maxAnnualValue).toBeGreaterThan(2500000);
   });
@@ -104,5 +104,67 @@ describe('Part Costing Mathematical Engine', () => {
     const result = calculatePartCost(smallVolumeInput);
     expect(result.requiresSalesHeadApproval).toBe(false);
     expect(result.maxAnnualValue).toBeLessThan(2500000);
+  });
+
+  it('uses pre-GST annual quotation value at the exact ₹25 lakh boundary', () => {
+    const result = calculatePartCost({
+      grossWeightKg: 1,
+      netWeightKg: 1,
+      materialRatePerKg: 25,
+      scrapRecoveryRatePerKg: 0,
+      annualVolume: 100000,
+      overheadPct: 0,
+      packingPerUnit: 0,
+      freightPerUnit: 0,
+      marginPct: 0,
+      gstPct: 18,
+      volumeTiers: [{ volume: 100000 }],
+      operations: [{
+        sequence: 1,
+        operationName: 'Test',
+        machineName: 'Test machine',
+        setupTimeMin: 0,
+        cycleTimeMin: 1,
+        machineHourRate: 0,
+        labourRateHr: 0,
+      }],
+    });
+
+    expect(result.tiers[0].unitPriceExGst).toBe(25);
+    expect(result.tiers[0].unitPriceInclGst).toBe(29.5);
+    expect(result.maxAnnualValue).toBe(2500000);
+    expect(result.requiresSalesHeadApproval).toBe(false);
+  });
+
+  it.each([
+    { annualValue: 1_000_000, requiresApproval: false },
+    { annualValue: 2_500_000, requiresApproval: false },
+    { annualValue: 2_500_001, requiresApproval: true },
+  ])('applies the approval boundary to annual pre-GST value ₹$annualValue', ({ annualValue, requiresApproval }) => {
+    const result = calculatePartCost({
+      grossWeightKg: 1,
+      netWeightKg: 1,
+      materialRatePerKg: annualValue,
+      scrapRecoveryRatePerKg: 0,
+      annualVolume: 1,
+      overheadPct: 0,
+      packingPerUnit: 0,
+      freightPerUnit: 0,
+      marginPct: 0,
+      gstPct: 18,
+      volumeTiers: [{ volume: 1 }],
+      operations: [{
+        sequence: 1,
+        operationName: 'Test',
+        machineName: 'Test machine',
+        setupTimeMin: 0,
+        cycleTimeMin: 1,
+        machineHourRate: 0,
+        labourRateHr: 0,
+      }],
+    });
+
+    expect(result.maxAnnualValue).toBe(annualValue);
+    expect(result.requiresSalesHeadApproval).toBe(requiresApproval);
   });
 });

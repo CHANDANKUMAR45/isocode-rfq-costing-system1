@@ -10,6 +10,13 @@
     "seed": "tsx src/db/seed.ts",
     "prisma:push": "prisma db push --schema=../prisma/schema.prisma",
     "prisma:generate": "prisma generate --schema=../prisma/schema.prisma",
+    "prisma:generate:postgres": "prisma generate --schema=../prisma/postgresql/schema.prisma",
+    "prisma:generate:all": "npm run prisma:generate && npm run prisma:generate:postgres",
+    "prisma:migrate:deploy:postgres": "prisma migrate deploy --schema=../prisma/postgresql/schema.prisma",
+    "migrate:sqlite-to-postgres": "tsx src/scripts/migrateSqliteToPostgres.ts",
+    "verify:sqlite-postgres": "tsx src/scripts/migrateSqliteToPostgres.ts --verify-only",
+    "prisma:labour-migration": "prisma db execute --schema=../prisma/schema.prisma --file=../prisma/migrations/20261108171200_version_labour_rates/migration.sql",
+    "test:gemini": "tsx src/scripts/testGeminiConnection.ts",
     "test": "vitest run"
   },
   "dependencies": {

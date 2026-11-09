@@ -1,0 +1,250 @@
+// PostgreSQL schema. The root schema.prisma is used for SQLite development/tests.
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../server/node_modules/.prisma/postgres-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String     @id @default(uuid())
+  email           String     @unique
+  passwordHash    String
+  name            String
+  role            String     @default("ESTIMATOR")
+  department      String?    @default("Cost Estimation")
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  rfqsAssigned    RFQ[]      @relation("AssignedEstimator")
+  quotesCreated   Quote[]    @relation("QuoteCreator")
+  quotesApproved  Quote[]    @relation("QuoteApprover")
+  auditLogs       AuditLog[]
+}
+
+model Customer {
+  id            String   @id @default(uuid())
+  name          String
+  code          String   @unique
+  segment       String
+  contactPerson String?
+  email         String
+  phone         String?
+  address       String?
+  gstin         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  rfqs          RFQ[]
+}
+
+model MaterialRate {
+  id              String    @id @default(uuid())
+  materialCode    String
+  name            String
+  category        String
+  ratePerKg       Float
+  scrapRatePerKg  Float
+  density         Float     @default(7.85)
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  parts           Part[]
+}
+
+model MachineRate {
+  id            String    @id @default(uuid())
+  machineCode   String
+  name          String
+  category      String
+  hourRate      Float
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  operations    PartOperation[]
+}
+
+model LabourRate {
+  id            String    @id @default(uuid())
+  labourType    String
+  hourRate      Float
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([labourType])
+}
+
+model RFQ {
+  id                  String         @id @default(uuid())
+  rfqNumber           String         @unique
+  customerId          String
+  customer            Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedEstimatorId String?
+  assignedEstimator   User?          @relation("AssignedEstimator", fields: [assignedEstimatorId], references: [id])
+  status              String         @default("ESTIMATING")
+  lossReason          String?
+  targetDueDate       DateTime
+  receivedDate        DateTime       @default(now())
+  notes               String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  parts               Part[]
+  quotes              Quote[]
+  aiExtractions       AiExtraction[]
+}
+
+model Part {
+  id              String           @id @default(uuid())
+  rfqId           String
+  rfq             RFQ              @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  partNumber      String
+  partName        String
+  materialId      String?
+  material        MaterialRate?    @relation(fields: [materialId], references: [id])
+  materialName    String
+  grossWeightKg   Float
+  netWeightKg     Float
+  annualVolume    Int
+  targetPrice     Float?
+  drawingNumber   String?
+  drawingRevision String?          @default("Rev-A")
+  notes           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  operations      PartOperation[]
+  quotes          Quote[]
+}
+
+model PartOperation {
+  id            String       @id @default(uuid())
+  partId        String
+  part          Part         @relation(fields: [partId], references: [id], onDelete: Cascade)
+  sequence      Int
+  operationName String
+  machineId     String?
+  machine       MachineRate? @relation(fields: [machineId], references: [id])
+  machineName   String
+  setupTimeMin  Float        @default(30.0)
+  cycleTimeMin  Float
+  labourType    String?      @default("Skilled Machinist")
+  labourRateHr  Float        @default(150.0)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model Quote {
+  id               String             @id @default(uuid())
+  quoteNumber      String             @unique
+  rfqId            String
+  rfq              RFQ                @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  partId           String
+  part             Part               @relation(fields: [partId], references: [id], onDelete: Cascade)
+  createdById      String
+  createdBy        User               @relation("QuoteCreator", fields: [createdById], references: [id])
+  version          Int                @default(1)
+  status           String             @default("DRAFT")
+  overheadPct      Float              @default(12.0)
+  packingPerUnit   Float              @default(8.0)
+  freightPerUnit   Float              @default(12.0)
+  marginPct        Float              @default(15.0)
+  gstPct           Float              @default(18.0)
+  requiresApproval Boolean            @default(false)
+  totalAnnualValue Float              @default(0.0)
+  approvedById     String?
+  approvedBy       User?              @relation("QuoteApprover", fields: [approvedById], references: [id])
+  approvedAt       DateTime?
+  rejectionReason  String?
+  approvalComments String?
+  validityDays     Int                @default(30)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  volumeTiers      QuoteVolumeTier[]
+  snapshot         QuoteRateSnapshot?
+}
+
+model QuoteVolumeTier {
+  id                     String   @id @default(uuid())
+  quoteId                String
+  quote                  Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  volume                 Int
+  label                  String
+  materialCostPerUnit    Float
+  scrapCreditPerUnit     Float
+  netMaterialCostPerUnit Float
+  machiningCostPerUnit   Float
+  labourCostPerUnit      Float
+  directCostPerUnit      Float
+  overheadCostPerUnit    Float
+  packingPerUnit         Float
+  freightPerUnit         Float
+  baseCostPerUnit        Float
+  marginPerUnit          Float
+  unitPriceExGst         Float
+  gstAmountPerUnit       Float
+  unitPriceInclGst       Float
+  totalAnnualValue       Float
+  createdAt              DateTime @default(now())
+}
+
+model QuoteRateSnapshot {
+  id         String   @id @default(uuid())
+  quoteId    String   @unique
+  quote      Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  ratesData  String
+  capturedAt DateTime @default(now())
+}
+
+model AiExtraction {
+  id              String   @id @default(uuid())
+  rfqId           String?
+  rfq             RFQ?     @relation(fields: [rfqId], references: [id], onDelete: SetNull)
+  sourceType      String
+  rawInputSnippet String?
+  extractedData   String
+  provenanceMap   String
+  reviewed        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+}
+
+model HistoricalQuote {
+  id              String   @id @default(uuid())
+  rfqNumber       String
+  customerName    String
+  partName        String
+  material        String
+  grossWeightKg   Float
+  annualVolume    Int
+  cycleTimeMin    Float
+  machineHourRate Float
+  unitPriceInr    Float
+  quotedDate      DateTime
+  status          String
+  routingsSummary String?
+  createdAt       DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  entityType String
+  entityId   String
+  action     String
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  details    String?
+  createdAt  DateTime @default(now())
+}

@@ -1,25 +1,87 @@
+
+# Dependencies
 node_modules/
+client/node_modules/
+server/node_modules/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+client/.env
+server/.env
+client/.env.*
+server/.env.*
+!.env.example
+
+# Build output
 dist/
 build/
-.env
-.env.local
+client/dist/
+server/dist/
+coverage/
+.nyc_output/
+
+# SQLite databases and backups
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.sqlite-journal
+*.sqlite3-journal
+*.db-*
+*.sqlite-*
+*.sqlite3-*
+*.backup
+*.backup-*
+prisma/dev*.db
+prisma/dev*.sqlite
+prisma/dev*.sqlite3
+prisma/dev*.backup-*
+
+# Internal assignment and planning material; keep local copies out of Git.
+/ISOCODE_ASSIGNMENT.md
+/MASTER_PROMPT.md
+/REFERENCE_REPOSITORY.md
+/development_plan.md
+/prisma/postgresql/MIGRATION-REPORT.md
+ISOCODE_ASSIGNMENT*.md
+MASTER_PROMPT*.md
+REFERENCE_REPOSITORY*.md
+development_plan*.md
+
+# Logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
 
-# Database
-prisma/*.db
-prisma/*.db-journal
-*.sqlite
-*.sqlite-journal
-
-# OS & IDE
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/
 
-# Testing
-coverage/
+# IDE and editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.user
+
+# Test artifacts
+playwright-report/
+test-results/
+.nyc_output/
+
+# Local deployment artifacts
+.vercel/
+.netlify/
+
+# OS files
+desktop.ini

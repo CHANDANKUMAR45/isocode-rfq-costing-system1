@@ -1,6 +1,5 @@
 // Prisma schema for Isocode RFQ-to-Quote Costing Web Application
-// Client: Isocode RFQ Costing
-// Optimized for lightweight, zero-daemon SQLite storage on 8 GB RAM systems.
+// SQLite schema for local development and tests.
 
 generator client {
   provider = "prisma-client-js"
@@ -35,7 +34,7 @@ model Customer {
   contactPerson String?
   email         String
   phone         String?
-  address       String?  // e.g., "Sample industrial location"
+  address       String?
   gstin         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -77,13 +76,15 @@ model MachineRate {
 
 model LabourRate {
   id            String    @id @default(uuid())
-  labourType    String    @unique // e.g., "Skilled Machinist", "Operator", "Quality Inspector"
+  labourType    String    // e.g., "Skilled Machinist", "Operator", "Quality Inspector"
   hourRate      Float     // In ₹ INR/hr
   effectiveFrom DateTime
   effectiveTo   DateTime?
   isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  @@index([labourType])
 }
 
 model RFQ {
@@ -110,8 +111,8 @@ model Part {
   id                     String           @id @default(uuid())
   rfqId                  String
   rfq                    RFQ              @relation(fields: [rfqId], references: [id], onDelete: Cascade)
-  partNumber             String           // e.g., "SPN-DEMO-01"
-  partName               String           // e.g., "Drive shaft sleeve"
+  partNumber             String           // e.g., "SPN-2611-01"
+  partName               String           // e.g., "Rear wheel spindle"
   materialId             String?
   material               MaterialRate?    @relation(fields: [materialId], references: [id])
   materialName           String           // Fallback/canonical name: "EN8"
@@ -181,7 +182,7 @@ model QuoteVolumeTier {
   id                      String   @id @default(uuid())
   quoteId                 String
   quote                   Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  volume                  Int      // e.g., 16000, 42000, 120000
+  volume                  Int      // e.g., 24000, 60000, 180000
   label                   String   // e.g., "Batch 24k", "Batch 60k", "Batch 180k"
   materialCostPerUnit     Float    // Gross material cost
   scrapCreditPerUnit      Float    // Value recovered from scrap

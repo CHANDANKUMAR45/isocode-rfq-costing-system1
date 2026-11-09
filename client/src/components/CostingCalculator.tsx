@@ -13,6 +13,7 @@ import {
   Clock,
   Sparkles,
   ArrowRight,
+  TrendingUp,
 } from 'lucide-react';
 
 interface CostingCalculatorProps {
@@ -50,7 +51,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
   const [materialCode, setMaterialCode] = useState('EN8');
   const [grossWeightKg, setGrossWeightKg] = useState<number>(0.61);
   const [netWeightKg, setNetWeightKg] = useState<number>(0.52);
-  const [annualVolume, setAnnualVolume] = useState<number>(120000);
+  const [annualVolume, setAnnualVolume] = useState<number>(180000);
 
   // Costing Parameters
   const [overheadPct, setOverheadPct] = useState<number>(12.0);
@@ -60,7 +61,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
   const [gstPct] = useState<number>(18.0);
 
   // Volume Tiers for comparison
-  const [tiers, setTiers] = useState<number[]>([50000, 100000, 120000]);
+  const [tiers, setTiers] = useState<number[]>([50000, 100000, 180000]);
 
   // Operations Routing
   const [operations, setOperations] = useState<PartOperation[]>([
@@ -111,13 +112,11 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
       setNetWeightKg(p.netWeightKg);
       setAnnualVolume(p.annualVolume);
 
-      // Set default volume tiers around the requested annual volume
       const baseVol = p.annualVolume;
       const t1 = Math.round((baseVol * 0.4) / 1000) * 1000;
       const t2 = Math.round((baseVol * 0.7) / 1000) * 1000;
       setTiers([Math.max(1000, t1), Math.max(2000, t2), baseVol]);
 
-      // If part has stored operations, use them
       if (p.operations && p.operations.length > 0) {
         setOperations(
           p.operations.map((op) => ({
@@ -216,7 +215,6 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
     const updated = [...operations];
     updated[index] = { ...updated[index], [field]: value };
 
-    // If machine changed, automatically update machine hourly rate from active rate masters
     if (field === 'machineName') {
       const mach = activeRates.machines.find((m) => m.machineCode === value || m.name === value);
       if (mach) {
@@ -278,33 +276,34 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
+
       {/* Header bar */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 rounded-lg bg-sky-50 text-sky-700">
-              <Calculator className="w-5 h-5" />
-            </span>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 tracking-tight">
-                Deterministic Costing Engine & Part Routing
-              </h2>
-              <p className="text-xs text-slate-500">
-                Isocode sample location Standards • Multi-Volume Matrix • Versioned Rate Snapshots
-              </p>
-            </div>
+      <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col xl:flex-row xl:items-center justify-between gap-3 sm:gap-4">
+        <div className="flex items-center gap-2.5">
+          <span className="p-2 rounded-lg bg-sky-50 text-sky-700 shrink-0">
+            <Calculator className="w-5 h-5" />
+          </span>
+          <div>
+            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+              Deterministic Costing Engine & Part Routing
+            </h2>
+            <p className="text-[11px] sm:text-xs text-slate-500">
+              Configured Rates • Multi-Volume Matrix • Versioned Snapshots
+            </p>
           </div>
         </div>
 
-        {/* RFQ Selector */}
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase">Select RFQ</label>
+        {/* RFQ Selector & Quick Actions */}
+        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-between sm:justify-end">
+          <div className="flex-1 sm:flex-initial text-left sm:text-right min-w-0">
+            <label className="block text-[10px] sm:text-[11px] font-semibold text-slate-500 uppercase truncate">
+              Select RFQ
+            </label>
             <select
               value={selectedRfqId}
               onChange={(e) => setSelectedRfqId(e.target.value)}
-              className="text-sm font-mono font-medium rounded-lg border border-slate-300 py-1.5 px-3 bg-white text-slate-800 focus:ring-2 focus:ring-sky-500"
+              className="w-full sm:w-auto text-xs sm:text-sm font-mono font-medium rounded-lg border border-slate-300 py-1.5 px-2.5 bg-white text-slate-800 focus:ring-2 focus:ring-sky-500 truncate"
             >
               {rfqs.map((rfq) => (
                 <option key={rfq.id} value={rfq.id}>
@@ -316,10 +315,10 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
 
           <button
             onClick={onOpenAiIntake}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition-colors shrink-0 self-end"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            AI Pre-Fill
+            <span className="hidden xs:inline">AI Pre-Fill</span>
           </button>
         </div>
       </div>
@@ -327,75 +326,79 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
       {/* Approval Threshold Alert Banner */}
       {calcResult && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between ${
+          className={`p-3.5 sm:p-4 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 ${
             calcResult.requiresSalesHeadApproval
-              ? 'bg-amber-50/80 border-amber-300 text-amber-900'
-              : 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
+              ? 'bg-amber-50/90 border-amber-300 text-amber-900'
+              : 'bg-emerald-50/90 border-emerald-200 text-emerald-900'
           }`}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-start sm:items-center gap-2.5 sm:gap-3">
             {calcResult.requiresSalesHeadApproval ? (
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
             ) : (
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5 sm:mt-0" />
             )}
             <div>
-              <p className="text-sm font-bold">
+              <p className="text-xs sm:text-sm font-bold">
                 {calcResult.requiresSalesHeadApproval
                   ? `Annual Value: ₹${(calcResult.maxAnnualValue / 100000).toFixed(2)} Lakhs — Exceeds ₹25 Lakhs Threshold`
-                  : `Annual Value: ₹${(calcResult.maxAnnualValue / 100000).toFixed(2)} Lakhs — Standard Approval`}
+                  : `Annual Value: ₹${(calcResult.maxAnnualValue / 100000).toFixed(2)} Lakhs — Standard Approval Limit`}
               </p>
-              <p className="text-xs text-slate-600">
+              <p className="text-[11px] sm:text-xs text-slate-600 mt-0.5">
                 {calcResult.requiresSalesHeadApproval
-                  ? 'This quotation will automatically require Sales Head (Demo Sales Head) approval before being sent to the customer.'
-                  : 'Quote is within estimator authority limit.'}
+                  ? 'Requires Sales Head approval before release to customer.'
+                  : 'Quote is within standard estimator approval limit.'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0">
             {savedQuoteId && (
               <button
                 onClick={() => onOpenPdf(savedQuoteId)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-800 text-white shadow-xs transition-colors"
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-800 text-white shadow-xs transition-colors"
               >
                 <FileText className="w-3.5 h-3.5" />
-                Download PDF Quote
+                <span>PDF Quote</span>
               </button>
             )}
 
             <button
               onClick={handleSaveQuotation}
               disabled={isSaving}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white shadow-xs transition-colors disabled:opacity-50"
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white shadow-xs transition-colors disabled:opacity-50 min-h-[38px]"
             >
               <Save className="w-3.5 h-3.5" />
-              {isSaving ? 'Freezing Snapshot...' : 'Freeze & Save Quote'}
+              <span>{isSaving ? 'Freezing...' : 'Freeze & Save Quote'}</span>
             </button>
           </div>
         </div>
       )}
 
       {noticeMessage && (
-        <div className="p-3 bg-sky-50 border border-sky-200 rounded-lg text-xs text-sky-800 font-medium">
+        <div className="p-3 bg-sky-50 border border-sky-200 rounded-lg text-xs text-sky-800 font-medium animate-in fade-in">
           ✓ {noticeMessage}
         </div>
       )}
 
       {/* Main Grid: Left Column (Inputs) & Right Column (Multi-Volume Matrix) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* LEFT COLUMN: Inputs (5 cols) */}
-        <div className="lg:col-span-5 space-y-6">
-          
-          {/* Card 1: Part & Material Master */}
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
-              <span>Part & Material Master</span>
-              <span className="text-[11px] font-mono text-sky-600">Rate: ₹{activeMaterial.ratePerKg}/kg</span>
-            </h3>
+      <div className="grid min-w-0 grid-cols-1 xl:grid-cols-12 gap-5 sm:gap-6 items-start">
 
-            <div className="grid grid-cols-2 gap-3">
+        {/* LEFT COLUMN: Inputs (5 cols on desktop, full width on mobile/tablet) */}
+        <div className="min-w-0 xl:col-span-5 space-y-4 sm:space-y-6">
+
+          {/* Card 1: Part & Material Master */}
+          <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-xs space-y-3.5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Part & Material Master
+              </h3>
+              <span className="text-[11px] font-mono text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+                Rate: ₹{activeMaterial.ratePerKg}/kg
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Part Name</label>
                 <input
@@ -432,9 +435,12 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
               </select>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            {/* Weights: responsive 2-column or 3-column layout */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Gross Wt (kg)</label>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1 truncate">
+                  Gross Wt (kg)
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -445,7 +451,9 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Net Wt (kg)</label>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1 truncate">
+                  Net Wt (kg)
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -455,8 +463,10 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Scrap Recv (₹/kg)</label>
+              <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[11px] font-medium text-slate-600 mb-1 truncate">
+                  Scrap Recv (₹/kg)
+                </label>
                 <input
                   type="number"
                   step="1"
@@ -468,114 +478,18 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
             </div>
 
             {/* Scrap recovery preview */}
-            <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs flex justify-between">
-              <span className="text-slate-500">
+            <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs flex items-center justify-between">
+              <span className="text-slate-500 truncate mr-2">
                 Scrap Loss: {Math.max(0, grossWeightKg - netWeightKg).toFixed(2)} kg
               </span>
-              <span className="font-semibold text-emerald-700">
-                Scrap Credit: ₹{(Math.max(0, grossWeightKg - netWeightKg) * activeMaterial.scrapRatePerKg).toFixed(2)}/pc
+              <span className="font-semibold text-emerald-700 whitespace-nowrap">
+                Credit: ₹{(Math.max(0, grossWeightKg - netWeightKg) * activeMaterial.scrapRatePerKg).toFixed(2)}/pc
               </span>
             </div>
           </div>
 
-          {/* Card 2: Operations Routing */}
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Operations Routing & Cycle Times
-              </h3>
-              <button
-                onClick={handleAddOperation}
-                className="flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-700"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add Step
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {operations.map((op, idx) => (
-                <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700">OP #{op.sequence}</span>
-                    <button
-                      onClick={() => handleRemoveOperation(idx)}
-                      className="text-slate-400 hover:text-rose-600 p-1"
-                      title="Remove operation"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      value={op.operationName}
-                      onChange={(e) => handleUpdateOperation(idx, 'operationName', e.target.value)}
-                      placeholder="Operation name"
-                      className="text-xs rounded border border-slate-300 p-1.5 bg-white"
-                    />
-
-                    <select
-                      value={op.machineName}
-                      onChange={(e) => handleUpdateOperation(idx, 'machineName', e.target.value)}
-                      className="text-xs rounded border border-slate-300 p-1.5 bg-white font-mono"
-                    >
-                      {activeRates.machines.map((m) => (
-                        <option key={m.id} value={m.machineCode}>
-                          {m.machineCode} (₹{m.hourRate}/hr)
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div>
-                      <span className="text-[10px] text-slate-500 block">Cycle (min)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={op.cycleTimeMin}
-                        onChange={(e) => handleUpdateOperation(idx, 'cycleTimeMin', parseFloat(e.target.value) || 0)}
-                        className="w-full p-1 border border-slate-300 rounded font-mono text-center font-bold text-sky-700"
-                      />
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] text-slate-500 block">Setup (min)</span>
-                      <input
-                        type="number"
-                        step="5"
-                        value={op.setupTimeMin}
-                        onChange={(e) => handleUpdateOperation(idx, 'setupTimeMin', parseFloat(e.target.value) || 0)}
-                        className="w-full p-1 border border-slate-300 rounded font-mono text-center"
-                      />
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] text-slate-500 block">Hour Rate (₹)</span>
-                      <input
-                        type="number"
-                        value={op.machineHourRate || 850}
-                        onChange={(e) => handleUpdateOperation(idx, 'machineHourRate', parseFloat(e.target.value) || 0)}
-                        className="w-full p-1 border border-slate-300 rounded font-mono text-center"
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Total cycle time */}
-            <div className="pt-2 border-t border-slate-100 flex justify-between text-xs font-semibold text-slate-700">
-              <span>Total Cycle Time:</span>
-              <span className="font-mono text-sky-700">
-                {operations.reduce((acc, o) => acc + (o.cycleTimeMin || 0), 0).toFixed(1)} mins/pc
-              </span>
-            </div>
-          </div>
-
-          {/* Card 3: Commercial Overheads & Margins */}
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
+          {/* Commercial Overheads & Margins */}
+          <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Commercial Overheads & Margin
             </h3>
@@ -588,7 +502,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   step="0.5"
                   value={overheadPct}
                   onChange={(e) => setOverheadPct(parseFloat(e.target.value) || 0)}
-                  className="w-full p-1.5 border border-slate-300 rounded font-mono"
+                  className="w-full p-2 border border-slate-300 rounded font-mono"
                 />
               </div>
 
@@ -599,7 +513,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   step="0.5"
                   value={marginPct}
                   onChange={(e) => setMarginPct(parseFloat(e.target.value) || 0)}
-                  className="w-full p-1.5 border border-slate-300 rounded font-mono font-bold text-emerald-700"
+                  className="w-full p-2 border border-slate-300 rounded font-mono font-bold text-emerald-700"
                 />
               </div>
 
@@ -610,7 +524,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   step="0.5"
                   value={packingPerUnit}
                   onChange={(e) => setPackingPerUnit(parseFloat(e.target.value) || 0)}
-                  className="w-full p-1.5 border border-slate-300 rounded font-mono"
+                  className="w-full p-2 border border-slate-300 rounded font-mono"
                 />
               </div>
 
@@ -621,7 +535,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   step="0.5"
                   value={freightPerUnit}
                   onChange={(e) => setFreightPerUnit(parseFloat(e.target.value) || 0)}
-                  className="w-full p-1.5 border border-slate-300 rounded font-mono"
+                  className="w-full p-2 border border-slate-300 rounded font-mono"
                 />
               </div>
             </div>
@@ -629,29 +543,37 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
 
         </div>
 
-        {/* RIGHT COLUMN: Multi-Volume Costing Matrix Table (7 cols) */}
-        <div className="lg:col-span-7">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden sticky top-20">
-            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+        {/* RIGHT COLUMN: Multi-Volume Costing Matrix Table (7 cols on desktop) */}
+        <div className="min-w-0 xl:col-span-7">
+          <div className="min-w-0 bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-3.5 sm:p-4 bg-slate-900 text-white flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold tracking-tight">Multi-Volume Costing Matrix (INR ₹)</h3>
-                <p className="text-[11px] text-slate-400">
-                  Fixed mathematical formulas • Setup amortized by volume • GST 18% itemized
+                <h3 className="text-xs sm:text-sm font-bold tracking-tight">Multi-Volume Costing Matrix (INR ₹)</h3>
+                <p className="text-[10px] sm:text-[11px] text-slate-400">
+                  Fixed formulas • Setup amortized by volume • GST 18% itemized
                 </p>
               </div>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950 text-sky-400 border border-sky-800">
-                100% Deterministic
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950 text-sky-400 border border-sky-800 shrink-0">
+                Deterministic
               </span>
             </div>
 
-            {/* Matrix Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left border-collapse">
+            {/* Matrix Table with Horizontal Scroll */}
+            <p className="px-3 py-2 text-[10px] text-slate-500 sm:hidden">
+              Scroll horizontally to view every volume and cost.
+            </p>
+            <div
+              className="max-w-full overflow-x-auto overscroll-x-contain"
+              role="region"
+              aria-label="Multi-volume costing matrix"
+              tabIndex={0}
+            >
+              <table className="w-full text-xs text-left border-collapse min-w-[640px]">
                 <thead>
                   <tr className="bg-slate-100 border-b border-slate-200 font-semibold text-slate-700">
                     <th className="py-2.5 px-3">Cost Breakdown Element</th>
                     {calcResult?.tiers.map((tier, i) => (
-                      <th key={i} className="py-2.5 px-3 text-right font-mono">
+                      <th key={i} className="py-2.5 px-3 text-right font-mono whitespace-nowrap">
                         {tier.label}
                       </th>
                     ))}
@@ -663,7 +585,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr>
                     <td className="py-2 px-3 text-slate-600">Gross Raw Material</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-700">
+                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-700 whitespace-nowrap">
                         ₹{t.grossMaterialCost.toFixed(2)}
                       </td>
                     ))}
@@ -673,7 +595,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr>
                     <td className="py-2 px-3 text-emerald-600">Less: Scrap Recovery Credit</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2 px-3 text-right font-mono text-emerald-600">
+                      <td key={i} className="py-2 px-3 text-right font-mono text-emerald-600 whitespace-nowrap">
                         - ₹{t.scrapCredit.toFixed(2)}
                       </td>
                     ))}
@@ -683,7 +605,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr className="bg-slate-50 font-medium">
                     <td className="py-2 px-3 text-slate-800">Net Material Cost</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-900 font-bold">
+                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-900 font-bold whitespace-nowrap">
                         ₹{t.netMaterialCost.toFixed(2)}
                       </td>
                     ))}
@@ -693,7 +615,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr>
                     <td className="py-2 px-3 text-slate-600">Machining & Setup (Amortized)</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-700">
+                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-700 whitespace-nowrap">
                         ₹{t.machiningCost.toFixed(2)}
                       </td>
                     ))}
@@ -703,7 +625,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr>
                     <td className="py-2 px-3 text-slate-600">Direct Labour</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-700">
+                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-700 whitespace-nowrap">
                         ₹{t.labourCost.toFixed(2)}
                       </td>
                     ))}
@@ -713,7 +635,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr className="bg-slate-50 font-medium">
                     <td className="py-2 px-3 text-slate-800">Total Direct Cost</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-900 font-bold">
+                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-900 font-bold whitespace-nowrap">
                         ₹{t.directCost.toFixed(2)}
                       </td>
                     ))}
@@ -723,7 +645,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr>
                     <td className="py-2 px-3 text-slate-600">Factory Overheads ({overheadPct}%)</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-700">
+                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-700 whitespace-nowrap">
                         ₹{t.overheadCost.toFixed(2)}
                       </td>
                     ))}
@@ -733,7 +655,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr>
                     <td className="py-2 px-3 text-slate-600">Packing & Freight</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-700">
+                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-700 whitespace-nowrap">
                         ₹{(t.packingCost + t.freightCost).toFixed(2)}
                       </td>
                     ))}
@@ -743,7 +665,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr className="bg-slate-100 font-bold">
                     <td className="py-2 px-3 text-slate-900">Base Manufacturing Cost</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-900 font-bold">
+                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-900 font-bold whitespace-nowrap">
                         ₹{t.baseCost.toFixed(2)}
                       </td>
                     ))}
@@ -753,7 +675,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr>
                     <td className="py-2 px-3 text-emerald-700">Profit Margin ({marginPct}%)</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2 px-3 text-right font-mono text-emerald-700 font-medium">
+                      <td key={i} className="py-2 px-3 text-right font-mono text-emerald-700 font-medium whitespace-nowrap">
                         + ₹{t.marginAmount.toFixed(2)}
                       </td>
                     ))}
@@ -763,7 +685,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr className="bg-sky-50 font-bold">
                     <td className="py-2.5 px-3 text-sky-950 font-bold">Quoted Unit Price (ex-GST)</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2.5 px-3 text-right font-mono text-sky-800 text-sm font-bold">
+                      <td key={i} className="py-2.5 px-3 text-right font-mono text-sky-800 text-sm font-bold whitespace-nowrap">
                         ₹{t.unitPriceExGst.toFixed(2)}
                       </td>
                     ))}
@@ -773,19 +695,19 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr>
                     <td className="py-2 px-3 text-slate-500">GST (18% Separately)</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-500">
+                      <td key={i} className="py-2 px-3 text-right font-mono text-slate-500 whitespace-nowrap">
                         ₹{t.gstAmount.toFixed(2)}
                       </td>
                     ))}
                   </tr>
 
                   {/* Final Unit Price (incl GST) */}
-                  <tr className="bg-sky-100/70 border-t-2 border-sky-400 font-bold">
+                  <tr className="bg-sky-100/80 border-t-2 border-sky-400 font-bold">
                     <td className="py-3 px-3 text-sky-950 font-bold uppercase tracking-tight">
                       Final Quoted Price (incl. GST)
                     </td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-3 px-3 text-right font-mono text-sky-950 text-base font-extrabold">
+                      <td key={i} className="py-3 px-3 text-right font-mono text-sky-950 text-base font-extrabold whitespace-nowrap">
                         ₹{t.unitPriceInclGst.toFixed(2)}
                       </td>
                     ))}
@@ -795,7 +717,7 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
                   <tr className="bg-slate-900 text-white">
                     <td className="py-2.5 px-3 font-semibold">Total Annual Contract Value</td>
                     {calcResult?.tiers.map((t, i) => (
-                      <td key={i} className="py-2.5 px-3 text-right font-mono font-bold text-amber-400">
+                      <td key={i} className="py-2.5 px-3 text-right font-mono font-bold text-amber-400 whitespace-nowrap">
                         ₹{t.totalAnnualValue.toLocaleString('en-IN')}
                       </td>
                     ))}
@@ -805,15 +727,114 @@ export const CostingCalculator: React.FC<CostingCalculatorProps> = ({
             </div>
 
             {/* Bottom summary and notes */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 space-y-1">
-              <p>• All unit prices are FOB sample location.</p>
-              <p>• Machine rates tied to effective-dated rate snapshot upon quote creation.</p>
-              <p>• Steel raw material indexed to standard domestic automotive billets.</p>
+            <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-500 space-y-1">
+              <p>• GST is shown separately • Rates are frozen in a snapshot when saved.</p>
             </div>
           </div>
         </div>
 
       </div>
+
+      {/* Operations routing spans the full layout below the part and pricing sections. */}
+      <section className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-xs space-y-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            Operations Routing & Cycle Times
+          </h3>
+          <button
+            onClick={handleAddOperation}
+            className="flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-700 py-1 px-1.5 rounded hover:bg-sky-50"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Step
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          {operations.map((op, idx) => (
+            <div key={idx} className="min-w-0 p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700">OP #{op.sequence}</span>
+                <button
+                  onClick={() => handleRemoveOperation(idx)}
+                  className="text-slate-400 hover:text-rose-600 p-1 rounded"
+                  title="Remove operation"
+                  aria-label={`Remove operation ${op.sequence}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  value={op.operationName}
+                  onChange={(e) => handleUpdateOperation(idx, 'operationName', e.target.value)}
+                  placeholder="Operation name"
+                  aria-label={`Operation ${op.sequence} name`}
+                  className="min-w-0 text-xs rounded border border-slate-300 p-2 bg-white"
+                />
+
+                <select
+                  value={op.machineName}
+                  onChange={(e) => handleUpdateOperation(idx, 'machineName', e.target.value)}
+                  aria-label={`Operation ${op.sequence} machine`}
+                  className="min-w-0 text-xs rounded border border-slate-300 p-2 bg-white font-mono"
+                >
+                  {activeRates.machines.map((m) => (
+                    <option key={m.id} value={m.machineCode}>
+                      {m.machineCode} (₹{m.hourRate}/hr)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="min-w-0">
+                  <span className="text-[10px] text-slate-500 block truncate">Cycle (min)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={op.cycleTimeMin}
+                    onChange={(e) => handleUpdateOperation(idx, 'cycleTimeMin', parseFloat(e.target.value) || 0)}
+                    aria-label={`Operation ${op.sequence} cycle time`}
+                    className="w-full min-w-0 p-1.5 border border-slate-300 rounded font-mono text-center font-bold text-sky-700"
+                  />
+                </div>
+
+                <div className="min-w-0">
+                  <span className="text-[10px] text-slate-500 block truncate">Setup (min)</span>
+                  <input
+                    type="number"
+                    step="5"
+                    value={op.setupTimeMin}
+                    onChange={(e) => handleUpdateOperation(idx, 'setupTimeMin', parseFloat(e.target.value) || 0)}
+                    aria-label={`Operation ${op.sequence} setup time`}
+                    className="w-full min-w-0 p-1.5 border border-slate-300 rounded font-mono text-center"
+                  />
+                </div>
+
+                <div className="min-w-0">
+                  <span className="text-[10px] text-slate-500 block truncate">Hour Rate (₹)</span>
+                  <input
+                    type="number"
+                    value={op.machineHourRate || 850}
+                    onChange={(e) => handleUpdateOperation(idx, 'machineHourRate', parseFloat(e.target.value) || 0)}
+                    aria-label={`Operation ${op.sequence} machine hourly rate`}
+                    className="w-full min-w-0 p-1.5 border border-slate-300 rounded font-mono text-center"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="pt-2 border-t border-slate-100 flex justify-between gap-2 text-xs font-semibold text-slate-700">
+          <span>Total Cycle Time:</span>
+          <span className="font-mono text-sky-700 text-right">
+            {operations.reduce((acc, o) => acc + (o.cycleTimeMin || 0), 0).toFixed(1)} mins/pc
+          </span>
+        </div>
+      </section>
     </div>
   );
 };

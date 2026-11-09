@@ -42,9 +42,7 @@ export function generateQuotationPdf(data: QuotationPdfData): Promise<Buffer> {
 
       // Header Banner
       doc.rect(40, 40, 515, 65).fill('#0f172a'); // Dark slate header
-      doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold').text('ISOCODE RFQ COSTING', 55, 52);
-      doc.fontSize(8.5).font('Helvetica').fillColor('#94a3b8').text('Precision Machined & Forged Automotive Components | sample location, Maharashtra 410501', 55, 74);
-      doc.text('GSTIN: [REDACTED_TAX_ID] | Email: quotes@example.invalid | Tel: [REDACTED_PHONE]', 55, 87);
+      doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold').text('ISOCODE RFQ COSTING', 55, 61);
 
       doc.moveDown(2);
       let currentY = 120;
@@ -68,7 +66,9 @@ export function generateQuotationPdf(data: QuotationPdfData): Promise<Buffer> {
       doc.text(`Code: ${data.customer.code}`, 50, currentY + 38);
       doc.text(`Contact: ${data.customer.contactPerson || 'Procurement Team'}`, 50, currentY + 52);
       doc.text(`Email: ${data.customer.email}`, 50, currentY + 66);
-      doc.text(`GSTIN: ${data.customer.gstin || '27XXXXX0000X1Z1'}`, 50, currentY + 80);
+      if (data.customer.gstin) {
+        doc.text(`GSTIN: ${data.customer.gstin}`, 50, currentY + 80);
+      }
 
       // Part Card
       doc.rect(305, currentY, 250, 95).fillAndStroke('#f8fafc', '#e2e8f0');
@@ -152,7 +152,7 @@ export function generateQuotationPdf(data: QuotationPdfData): Promise<Buffer> {
       doc.font('Helvetica').fontSize(7.5).fillColor('#64748b');
       currentY += 12;
       doc.text('1. Payment Terms: 45 days from date of delivery & receipt of GST invoice.', 40, currentY);
-      doc.text('2. Delivery Terms: Ex-Works sample location / Door delivery as agreed.', 40, currentY + 10);
+      doc.text('2. Delivery Terms: As agreed between the parties.', 40, currentY + 10);
       doc.text('3. Raw Material Escalation: Tied to national steel indices (quarterly review).', 40, currentY + 20);
       doc.text('4. Quality Standard: IATF 16949 compliant manufacturing and PPAP Level 3 documentation.', 40, currentY + 30);
 
@@ -165,7 +165,7 @@ export function generateQuotationPdf(data: QuotationPdfData): Promise<Buffer> {
 
       doc.rect(315, signY, 240, 45).fillAndStroke('#f8fafc', '#cbd5e1');
       doc.text(`Authorized Signatory: ${data.salesHeadName || 'Sales & Commercial Head'}`, 325, signY + 8);
-      doc.text(`Status: ${data.approvalStatus} | Isocode sample location`, 325, signY + 20);
+      doc.text(`Status: ${data.approvalStatus} | Isocode RFQ Costing`, 325, signY + 20);
 
       // End document
       doc.end();

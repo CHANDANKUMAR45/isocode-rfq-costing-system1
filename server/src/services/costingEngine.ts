@@ -1,6 +1,8 @@
+import { APPROVAL_THRESHOLD_INR } from './rfqWorkflow.js';
+
 /**
  * Pure Deterministic Part Costing Mathematical Engine
- * ISOCODE / Isocode RFQ Costing Tier-1 Automotive Costing Standard
+ * Manufacturing quotation calculations for the configured rate inputs.
  * 
  * Rules:
  * 1. Zero AI arithmetic - 100% deterministic, verifiable math.
@@ -71,8 +73,6 @@ export interface CostingCalculationResult {
   requiresSalesHeadApproval: boolean;
   approvalThreshold: number; // 25,00,000 INR
 }
-
-const APPROVAL_THRESHOLD_INR = 2500000; // ₹25 Lakhs
 
 /**
  * Rounds a number to two decimal places

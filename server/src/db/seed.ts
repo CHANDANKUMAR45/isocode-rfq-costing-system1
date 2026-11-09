@@ -2,7 +2,12 @@ import { prisma } from './prisma.js';
 import bcrypt from 'bcryptjs';
 
 async function main() {
-  console.log('🌱 Starting database seed for Isocode RFQ Costing...');
+  const demoPassword = process.env.DEMO_USER_PASSWORD;
+  if (!demoPassword || demoPassword.length < 12) {
+    throw new Error('Set DEMO_USER_PASSWORD to a unique value of at least 12 characters before seeding');
+  }
+
+  console.log('🌱 Starting database seed with synthetic sample data...');
 
   // 1. Clean existing records safely
   await prisma.auditLog.deleteMany();
@@ -23,7 +28,7 @@ async function main() {
   console.log('🧹 Cleaned existing tables.');
 
   // 2. Users & Roles
-  const passwordHash = await bcrypt.hash('[REDACTED_DEMO_PASSWORD]', 10);
+  const passwordHash = await bcrypt.hash(demoPassword, 10);
 
   const estimator = await prisma.user.create({
     data: {
@@ -31,7 +36,7 @@ async function main() {
       email: 'estimator@example.invalid',
       passwordHash,
       role: 'ESTIMATOR',
-      department: 'Cost Estimation & Engineering',
+      department: 'Cost Estimation',
     },
   });
 
@@ -41,7 +46,7 @@ async function main() {
       email: 'saleshead@example.invalid',
       passwordHash,
       role: 'SALES_HEAD',
-      department: 'Sales & Commercial Operations',
+      department: 'Sales',
     },
   });
 
@@ -57,17 +62,14 @@ async function main() {
 
   console.log('👤 Created demo users: Estimator, Sales Head, Admin.');
 
-  // 3. Customers in sample location Automotive Belt
+  // 3. Synthetic customer records
   const custB = await prisma.customer.create({
     data: {
       name: 'Sample Customer A',
       code: 'CUST-SAMPLE-A',
-      segment: 'Two-Wheeler OEM',
-      contactPerson: 'Mr. Sample Contact (Head of Sourcing)',
+      segment: 'Two-Wheeler',
+      contactPerson: 'Sample Contact A',
       email: 'contact-a@example.invalid',
-      phone: '[REDACTED_PHONE]',
-      address: 'MIDC Sample industrial location',
-      gstin: '[REDACTED_TAX_ID]',
     },
   });
 
@@ -75,12 +77,9 @@ async function main() {
     data: {
       name: 'Sample Customer B',
       code: 'CUST-SAMPLE-B',
-      segment: 'Tractor & Farm Equipment OEM',
-      contactPerson: 'Mr. Sample Contact (Procurement GM)',
+      segment: 'Agricultural Equipment',
+      contactPerson: 'Sample Contact B',
       email: 'contact-b@example.invalid',
-      phone: '[REDACTED_PHONE]',
-      address: 'Sample industrial location',
-      gstin: '[REDACTED_TAX_ID]',
     },
   });
 
@@ -88,16 +87,13 @@ async function main() {
     data: {
       name: 'Sample Customer C',
       code: 'CUST-SAMPLE-C',
-      segment: 'Tier-1 Drivetrain Systems',
-      contactPerson: 'Ms. Sample Contact (Vendor Development)',
+      segment: 'Industrial Components',
+      contactPerson: 'Sample Contact C',
       email: 'contact-c@example.invalid',
-      phone: '[REDACTED_PHONE]',
-      address: 'Sample industrial location',
-      gstin: '[REDACTED_TAX_ID]',
     },
   });
 
-  console.log('🏭 Created Customers: Company B, Company C, Company D.');
+  console.log('🏭 Created synthetic sample customers.');
 
   // 4. Rate Masters with Effective Dates
   const effectiveStart = new Date('2026-01-01');
@@ -221,8 +217,7 @@ async function main() {
 
   console.log('⚙️ Seeded Effective-Dated Rate Masters: Materials, Machines, Labour.');
 
-  // 5. Seed Core Sample RFQs from ISOCODE_ASSIGNMENT.md
-  // RFQ 1: RFQ-DEMO-001 (Drive shaft sleeve)
+  // 5. Seed representative sample RFQs
   const rfq1 = await prisma.rFQ.create({
     data: {
       rfqNumber: 'RFQ-DEMO-001',
@@ -230,7 +225,7 @@ async function main() {
       assignedEstimatorId: estimator.id,
       status: 'ESTIMATING',
       targetDueDate: new Date('2026-11-20'),
-      notes: 'High-volume two-wheeler rear spindle RFQ. Drawing ref: DWG-DEMO-001. Annual requirement 120,000 units.',
+      notes: 'Synthetic sample RFQ for a drive shaft sleeve. No customer data is included.',
       parts: {
         create: [
           {
@@ -238,12 +233,12 @@ async function main() {
             partName: 'Drive shaft sleeve',
             materialId: matEN8.id,
             materialName: 'EN8',
-            grossWeightKg: 0.61,
-            netWeightKg: 0.52,
+            grossWeightKg: 0.58,
+            netWeightKg: 0.49,
             annualVolume: 120000,
-            targetPrice: 85.0,
+            targetPrice: 92.0,
             drawingNumber: 'DWG-DEMO-001',
-            drawingRevision: 'Rev-02',
+            drawingRevision: 'A',
             operations: {
               create: [
                 {
@@ -252,17 +247,17 @@ async function main() {
                   machineId: machCncLathe.id,
                   machineName: machCncLathe.name,
                   setupTimeMin: 30.0,
-                  cycleTimeMin: 0.8,
+                  cycleTimeMin: 0.9,
                   labourType: 'Skilled Machinist',
                   labourRateHr: 160.0,
                 },
                 {
                   sequence: 2,
-                  operationName: 'Rough & Finish CNC Turning & Threading',
+                  operationName: 'Finish CNC Turning & Threading',
                   machineId: machCncLathe.id,
                   machineName: machCncLathe.name,
                   setupTimeMin: 45.0,
-                  cycleTimeMin: 2.4, // Total cycle time 0.8 + 2.4 = 3.2 min matching sample
+                  cycleTimeMin: 2.3,
                   labourType: 'Skilled Machinist',
                   labourRateHr: 160.0,
                 },
@@ -275,7 +270,7 @@ async function main() {
     include: { parts: { include: { operations: true } } },
   });
 
-  // RFQ 2: RFQ-DEMO-002 (Linkage bracket)
+  // RFQ 2: linkage bracket
   await prisma.rFQ.create({
     data: {
       rfqNumber: 'RFQ-DEMO-002',
@@ -283,7 +278,7 @@ async function main() {
       assignedEstimatorId: estimator.id,
       status: 'ESTIMATING',
       targetDueDate: new Date('2026-11-25'),
-      notes: 'Tractor hydraulic linkage arm in 40Cr4 forging. Annual volume 16,000 units.',
+      notes: 'Synthetic sample linkage bracket RFQ.',
       parts: {
         create: [
           {
@@ -291,12 +286,12 @@ async function main() {
             partName: 'Linkage bracket',
             materialId: mat40Cr4.id,
             materialName: '40Cr4 forging',
-            grossWeightKg: 4.60,
-            netWeightKg: 3.95,
+            grossWeightKg: 3.9,
+            netWeightKg: 3.3,
             annualVolume: 16000,
-            targetPrice: 780.0,
+            targetPrice: 720.0,
             drawingNumber: 'DWG-DEMO-002',
-            drawingRevision: 'Rev-04',
+            drawingRevision: 'A',
             operations: {
               create: [
                 {
@@ -311,11 +306,11 @@ async function main() {
                 },
                 {
                   sequence: 2,
-                  operationName: 'VMC Pivot Hole Milling & Reaming',
+                  operationName: 'VMC Milling & Reaming',
                   machineId: machVmc.id,
                   machineName: machVmc.name,
                   setupTimeMin: 45.0,
-                  cycleTimeMin: 7.0, // Total cycle time 4.5 + 7.0 = 11.5 min matching sample
+                  cycleTimeMin: 6.0,
                   labourType: 'Skilled Machinist',
                   labourRateHr: 160.0,
                 },
@@ -327,7 +322,7 @@ async function main() {
     },
   });
 
-  // RFQ 3: RFQ-DEMO-003 (Transmission Transmission gear blank)
+  // RFQ 3: transmission gear blank
   await prisma.rFQ.create({
     data: {
       rfqNumber: 'RFQ-DEMO-003',
@@ -335,20 +330,20 @@ async function main() {
       assignedEstimatorId: estimator.id,
       status: 'ESTIMATING',
       targetDueDate: new Date('2026-11-28'),
-      notes: 'Transmission Transmission gear blank for transmission sub-assembly in 20MnCr5. Annual volume 42,000 units.',
+      notes: 'Synthetic sample transmission gear blank RFQ.',
       parts: {
         create: [
           {
             partNumber: 'GB-DEMO-003',
-            partName: 'Transmission Transmission gear blank',
+            partName: 'Transmission gear blank',
             materialId: mat20MnCr5.id,
             materialName: '20MnCr5',
-            grossWeightKg: 1.48,
-            netWeightKg: 1.22,
+            grossWeightKg: 1.3,
+            netWeightKg: 1.05,
             annualVolume: 42000,
-            targetPrice: 220.0,
+            targetPrice: 235.0,
             drawingNumber: 'DWG-DEMO-003',
-            drawingRevision: 'Rev-01',
+            drawingRevision: 'A',
             operations: {
               create: [
                 {
@@ -379,9 +374,9 @@ async function main() {
     },
   });
 
-  console.log('📋 Seeded the 3 core sample RFQs from assignment.');
+  console.log('📋 Seeded 3 synthetic sample RFQs.');
 
-  // 6. Pre-calculate and seed a Quotation for RFQ-DEMO-001 showing Approval Workflow (> ₹25L)
+  // 6. Pre-calculate a quotation demonstrating the approval workflow (> ₹25L)
   const part1 = rfq1.parts[0];
   const quote1 = await prisma.quote.create({
     data: {
@@ -397,7 +392,7 @@ async function main() {
       marginPct: 15.0,
       gstPct: 18.0,
       requiresApproval: true,
-      totalAnnualValue: 120000 * 87.50, // ₹1,57,50,000 (> ₹25 Lakhs)
+      totalAnnualValue: 120000 * 87.50,
       validityDays: 30,
       volumeTiers: {
         create: [
@@ -441,7 +436,7 @@ async function main() {
           },
           {
             volume: 120000,
-            label: 'Batch 180k pcs (Recommended)',
+            label: 'Batch 120k pcs (Recommended)',
             materialCostPerUnit: 47.58,
             scrapCreditPerUnit: 2.88,
             netMaterialCostPerUnit: 44.70,
@@ -481,19 +476,19 @@ async function main() {
 
   console.log(`💼 Seeded Quote ${quote1.quoteNumber} (Pending Approval > ₹25L).`);
 
-  // 7. Seed 1,400 Realistic Historical Quotes for Search & Similarity
-  console.log('📚 Generating 1,400 realistic historical quotes for sample location manufacturing base...');
+  // 7. Generate synthetic historical quotes for search and similarity
+  console.log('📚 Generating 1,400 synthetic historical quotes...');
   const partTypes = [
-    { name: 'Drive shaft sleeve', mat: 'EN8', wt: 0.61, ct: 3.2, hr: 850, rate: 145.0, rout: 'Facing, CNC Turning, Threading' },
-    { name: 'Pivot shaft', mat: 'EN8', wt: 0.75, ct: 3.8, hr: 850, rate: 168.0, rout: 'Facing, CNC Turning, Cylindrical Grinding' },
-    { name: 'Linkage bracket', mat: '40Cr4 forging', wt: 4.60, ct: 11.5, hr: 1450, rate: 790.0, rout: 'Forging, VMC Milling, Hole Reaming' },
-    { name: 'Steering support', mat: '40Cr4 forging', wt: 3.20, ct: 8.5, hr: 1250, rate: 640.0, rout: 'Rough Milling, Drilling, Bore Finish' },
-    { name: 'Transmission Transmission gear blank', mat: '20MnCr5', wt: 1.48, ct: 4.8, hr: 950, rate: 225.0, rout: 'CNC Blank Turning, Bore Grinding' },
-    { name: 'Drive pinion', mat: '20MnCr5', wt: 2.10, ct: 6.2, hr: 950, rate: 310.0, rout: 'Turning, Spline Hobbing, Heat Treatment' },
-    { name: 'Shaft coupling', mat: 'Forged Steel', wt: 1.85, ct: 5.4, hr: 1100, rate: 295.0, rout: 'Forging, 4-Axis VMC Milling' },
-    { name: 'Linkage rod', mat: 'Micro-alloyed Forging', wt: 0.95, ct: 7.2, hr: 1350, rate: 380.0, rout: 'Fracture Split, Big End Boring, Serration' },
-    { name: 'Actuator shaft', mat: 'EN8', wt: 0.42, ct: 2.6, hr: 850, rate: 98.0, rout: 'Centerless Grinding, Oil Hole Gun Drilling' },
-    { name: 'Brake mounting bracket', mat: 'Ductile Iron SG450', wt: 2.40, ct: 5.0, hr: 1150, rate: 340.0, rout: 'VMC Face Milling, Tapping M12' },
+    { name: 'Drive shaft sleeve', mat: 'EN8', wt: 0.58, ct: 3.4, hr: 850, rate: 148.0, rout: 'Facing, CNC Turning, Threading' },
+    { name: 'Pivot shaft', mat: 'EN8', wt: 0.72, ct: 3.7, hr: 850, rate: 165.0, rout: 'Facing, CNC Turning, Cylindrical Grinding' },
+    { name: 'Linkage bracket', mat: '40Cr4 forging', wt: 3.9, ct: 10.5, hr: 1450, rate: 745.0, rout: 'Forging, VMC Milling, Hole Reaming' },
+    { name: 'Steering support', mat: '40Cr4 forging', wt: 3.0, ct: 8.1, hr: 1250, rate: 615.0, rout: 'Rough Milling, Drilling, Bore Finish' },
+    { name: 'Transmission gear blank', mat: '20MnCr5', wt: 1.3, ct: 4.5, hr: 950, rate: 232.0, rout: 'CNC Blank Turning, Bore Grinding' },
+    { name: 'Drive pinion', mat: '20MnCr5', wt: 1.9, ct: 5.8, hr: 950, rate: 310.0, rout: 'Turning, Spline Hobbing, Heat Treatment' },
+    { name: 'Shaft coupling', mat: 'Forged Steel', wt: 1.7, ct: 5.1, hr: 1100, rate: 295.0, rout: 'Forging, 4-Axis VMC Milling' },
+    { name: 'Linkage rod', mat: 'Micro-alloyed Forging', wt: 0.9, ct: 6.8, hr: 1350, rate: 380.0, rout: 'Fracture Split, Big End Boring, Serration' },
+    { name: 'Actuator shaft', mat: 'EN8', wt: 0.4, ct: 2.5, hr: 850, rate: 98.0, rout: 'Centerless Grinding, Oil Hole Gun Drilling' },
+    { name: 'Brake mounting bracket', mat: 'Ductile Iron SG450', wt: 2.2, ct: 4.8, hr: 1150, rate: 340.0, rout: 'VMC Face Milling, Tapping M12' },
   ];
 
   const customersList = [
