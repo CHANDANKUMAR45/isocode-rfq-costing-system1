@@ -243,7 +243,7 @@ Isocode-RFQ-Costing-App/
 ### Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/CHANDANKUMAR45/isocode-rfq-costing-system.git
+git clone https://github.com/CHANDANKUMAR45/isocode-rfq-costing-system1.git
 cd isocode-rfq-costing-system
 ```
 
@@ -327,13 +327,12 @@ For PostgreSQL setup, existing database migrations, and additional environment d
 
 After initializing a disposable local database, use these sample accounts:
 
-| Role | Email |
-|---|---|
-| Estimator | `estimator@example.invalid` |
-| Sales Head | `saleshead@example.invalid` |
-| Admin | `admin@example.invalid` |
+| Role | Name | Email | Password | Allowed Actions |
+|---|---|---|---|---|
+| **Estimator** | Rajesh Sharma | `estimator@companya.com` | `company123` | Create RFQs, run costing calculations, submit quotes for review |
+| **Sales Head** | Vikram Malhotra | `saleshead@companya.com` | `company123` | Approve/reject quotes over ₹25 Lakhs, version rate masters |
+| **Admin** | Pooja Patil | `admin@companya.com` | `company123` | Full plant configuration & audit management |
 
-The password is the private value configured through `DEMO_USER_PASSWORD`.
 
 These accounts are intended for local demonstration only. Do not use seed accounts with production data.
 
