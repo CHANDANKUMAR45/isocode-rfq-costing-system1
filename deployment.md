@@ -66,11 +66,11 @@ Configure the following environment variables in `server/.env`:
 
 The application includes an instant **one-click Role Switcher** in the top navigation bar. You may also log in manually:
 
-| Role | Email | Password | Intended Workflow |
-| :--- | :--- | :--- | :--- |
-| **Estimator** | `estimator@example.invalid` | `[REDACTED_DEMO_PASSWORD]` | Create RFQs, run costing calculations, submit quotes for approval |
-| **Sales Head** | `saleshead@example.invalid` | `[REDACTED_DEMO_PASSWORD]` | Review & approve/reject quotes over ₹25 Lakhs, version rate masters |
-| **Admin** | `admin@example.invalid` | `[REDACTED_DEMO_PASSWORD]` | Full system audit and rate configuration |
+| Role | Name | Email | Password | Allowed Actions |
+|---|---|---|---|---|
+| **Estimator** | Rajesh Sharma | `estimator@companya.com` | `company123` | Create RFQs, run costing calculations, submit quotes for review |
+| **Sales Head** | Vikram Malhotra | `saleshead@companya.com` | `company123` | Approve/reject quotes over ₹25 Lakhs, version rate masters |
+| **Admin** | Pooja Patil | `admin@companya.com` | `company123` | Full plant configuration & audit management |
 
 ---
 
