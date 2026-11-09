@@ -18,7 +18,7 @@ Configure the following environment variables in `server/.env`:
 | :--- | :--- | :--- |
 | `PORT` | `5000` | Port on which the Express server listens |
 | `NODE_ENV` | `development` | Runtime environment (`development`, `production`, `test`) |
-| `DATABASE_URL` | `"file:../prisma/dev.db"` | SQLite database connection string |
+| `DATABASE_URL` | `postgresql://postgres.kvrmquwluintoqitxqly:[PASSWORD]@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres` |  database connection string |
 | `JWT_SECRET` | `"company-a-sample location-rfq-jwt-secret-key-2026"` | Cryptographic key used to sign and verify session JWTs |
 | `GEMINI_API_KEY` | *(Optional)* | Google AI Studio free-tier Gemini API key for real AI RFQ intake |
 
